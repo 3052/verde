@@ -12,53 +12,30 @@ import (
    "os"
    "os/exec"
    "path/filepath"
+   "strings"
    "time"
 )
 
-func do_country(name, code string) error {
-   data, err := read_file(name)
+func (c *client) do() error {
+   var err error
+   c.cache, err = os.UserCacheDir()
    if err != nil {
       return err
    }
-   var loads nordVpn.ServerLoads
-   err = loads.Unmarshal(data)
-   if err != nil {
-      return err
+   c.cache = filepath.Join(c.cache, "nordVpn/nordVpn.json")
+   // 1
+   flag.BoolVar(&c.write, "w", false, "write")
+   // 2
+   flag.StringVar(&c.country_code, "c", "", "country code")
+   flag.Parse()
+   if c.write {
+      return c.do_write()
    }
-   country, ok := loads.Country(code)
-   if !ok {
-      return errors.New(".Country")
+   if c.country_code != "" {
+      return c.do_country_code()
    }
-   data, err = loads.Marshal()
-   if err != nil {
-      return err
-   }
-   err = write_file(name, data)
-   if err != nil {
-      return err
-   }
-   user, err := output("credential", "-h=api.nordvpn.com", "-k=username")
-   if err != nil {
-      return err
-   }
-   password, err := output("credential", "-h=api.nordvpn.com")
-   if err != nil {
-      return err
-   }
-   fmt.Println(nordVpn.FormatProxy(string(user), string(password), country))
+   flag.Usage()
    return nil
-}
-
-func do_write(name string) error {
-   servers, err := nordVpn.GetServers(0)
-   if err != nil {
-      return err
-   }
-   data, err := nordVpn.GetServerLoads(servers).Marshal()
-   if err != nil {
-      return err
-   }
-   return write_file(name, data)
 }
 
 func write_file(name string, data []byte) error {
@@ -66,40 +43,6 @@ func write_file(name string, data []byte) error {
    return os.WriteFile(name, data, os.ModePerm)
 }
 
-func main() {
-   log.SetFlags(log.Ltime)
-   http.DefaultTransport = &http.Transport{
-      Proxy: func(req *http.Request) (*url.URL, error) {
-         log.Println(req.Method, req.URL)
-         return http.ProxyFromEnvironment(req)
-      },
-   }
-   write := flag.Bool("w", false, "write")
-   country_code := flag.String("c", "", "country code")
-   flag.Parse()
-   cache, err := os.UserCacheDir()
-   if err != nil {
-      log.Fatal(err)
-   }
-   cache = filepath.ToSlash(cache) + "/nordVpn/nordVpn.json"
-   switch {
-   case *country_code != "":
-      err = do_country(cache, *country_code)
-   case *write:
-      err = do_write(cache)
-   default:
-      flag.Usage()
-   }
-   if err != nil {
-      log.Fatal(err)
-   }
-}
-
-func output(name string, arg ...string) ([]byte, error) {
-   command := exec.Command(name, arg...)
-   log.Println("Output", command.Args)
-   return command.Output()
-}
 func read_file(name string) ([]byte, error) {
    file, err := os.Open(name)
    if err != nil {
@@ -114,4 +57,75 @@ func read_file(name string) ([]byte, error) {
       return nil, errors.New("ModTime")
    }
    return io.ReadAll(file)
+}
+
+func (c *client) do_write() error {
+   data, err := nordVpn.WriteServers(0)
+   if err != nil {
+      return err
+   }
+   return write_file(c.cache, data)
+}
+
+type client struct {
+   cache string
+   // 1
+   write bool
+   // 2
+   country_code string
+}
+
+func output(name string, arg ...string) (string, error) {
+   var data strings.Builder
+   command := exec.Command(name, arg...)
+   command.Stdout = &data
+   log.Println("Run", command.Args)
+   err := command.Run()
+   if err != nil {
+      return "", err
+   }
+   return data.String(), nil
+}
+
+func (c *client) do_country_code() error {
+   data, err := read_file(c.cache)
+   if err != nil {
+      return err
+   }
+   servers, err := nordVpn.ReadServers(data)
+   if err != nil {
+      return err
+   }
+   username, err := output("credential", "-h=api.nordvpn.com", "-k=username")
+   if err != nil {
+      return err
+   }
+   password, err := output("credential", "-h=api.nordvpn.com")
+   if err != nil {
+      return err
+   }
+   for _, server := range servers {
+      if server.ProxySsl() {
+         if server.Country(c.country_code) {
+            fmt.Println(
+               nordVpn.FormatProxy(username, password, server.Hostname),
+            )
+         }
+      }
+   }
+   return nil
+}
+
+func main() {
+   log.SetFlags(log.Ltime)
+   http.DefaultTransport = &http.Transport{
+      Proxy: func(req *http.Request) (*url.URL, error) {
+         log.Println(req.Method, req.URL)
+         return nil, nil
+      },
+   }
+   err := new(client).do()
+   if err != nil {
+      log.Fatal(err)
+   }
 }
