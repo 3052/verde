@@ -16,6 +16,23 @@ import (
    "time"
 )
 
+func main() {
+   log.SetFlags(log.Ltime)
+   http.DefaultTransport = &http.Transport{
+      Proxy: func(req *http.Request) (*url.URL, error) {
+         if req.Method == "" {
+            req.Method = "GET"
+         }
+         log.Println(req.Method, req.URL)
+         return nil, nil
+      },
+   }
+   err := new(client).do()
+   if err != nil {
+      log.Fatal(err)
+   }
+}
+
 func (c *client) do() error {
    var err error
    c.cache, err = os.UserCacheDir()
@@ -114,18 +131,4 @@ func (c *client) do_country_code() error {
       }
    }
    return nil
-}
-
-func main() {
-   log.SetFlags(log.Ltime)
-   http.DefaultTransport = &http.Transport{
-      Proxy: func(req *http.Request) (*url.URL, error) {
-         log.Println(req.Method, req.URL)
-         return nil, nil
-      },
-   }
-   err := new(client).do()
-   if err != nil {
-      log.Fatal(err)
-   }
 }
