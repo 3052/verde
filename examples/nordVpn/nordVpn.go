@@ -1,7 +1,7 @@
 package main
 
 import (
-   "41.neocities.org/service/nordVpn"
+   "41.neocities.org/verde/nordVpn"
    "errors"
    "flag"
    "fmt"

@@ -1,4 +1,4 @@
-# service
+# verde
 
 - https://justwatch.com
 - https://nordvpn.com

@@ -1,7 +1,7 @@
 {
-   "import_path": "41.neocities.org/service",
+   "import_path": "41.neocities.org/verde",
    "input": ".",
-   "output": "D:/41.neocities.org/service",
-   "repository": "https://github.com/3052/service",
-   "version": "v1.8.2"
+   "output": "D:/41.neocities.org/verde",
+   "repository": "https://github.com/3052/verde",
+   "version": "v1.8.3"
 }

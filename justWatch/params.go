@@ -10,6 +10,7 @@ var params_to_delete = []struct {
    key   string
    value string
 }{
+   {"2026-03-08", "searchReferral", ""},
    {"2026-03-07", "referrer", "JustWatch"},
    {"2026-03-04", "subId3", "justappsvod"},
    {"2026-02-26", "autoplay", "1"},
