@@ -14,8 +14,57 @@ import (
    "net/url"
    "slices"
    "strings"
+   _ "embed"
 )
 
+//go:embed GetUrlTitleDetails.gql
+var get_url_title_details string
+
+//go:embed BackendConstantsFetcherQuery.gql
+var backend_constants_fetcher_query string
+
+var params_to_delete = []struct {
+   date  string
+   key   string
+   value string
+}{
+   {"2026-03-08", "searchReferral", ""},
+   {"2026-03-07", "referrer", "JustWatch"},
+   {"2026-03-04", "subId3", "justappsvod"},
+   {"2026-02-26", "autoplay", "1"},
+   {"2026-02-26", "searchReferral", "publisher"},
+   {"2026-02-26", "source", "bing"},
+   {"2026-02-26", "source", "search-feeds"},
+   {"2026-02-26", "utm_campaign", "vod_feed"},
+   {"2026-02-26", "utm_content", ""},
+   {"2026-02-26", "utm_medium", "deeplink"},
+   {"2026-02-26", "utm_medium", "partner"},
+   {"2026-02-26", "utm_source", "justWatch-v2-catalog"},
+   {"2026-02-26", "utm_source", "justwatch"},
+   {"2026-02-26", "utm_source", "universal_search"},
+   {"2026-02-26", "utm_term", ""},
+}
+
+func getUrlGroupingKey(rawUrl string) string {
+   trimmedUrl := strings.TrimSuffix(rawUrl, "\n")
+   parsed, err := url.Parse(trimmedUrl)
+   if err != nil {
+      return trimmedUrl
+   }
+   if parsed.RawQuery == "" {
+      return parsed.String()
+   }
+   query := parsed.Query()
+   for _, rule := range params_to_delete {
+      // .Get() returns the first value. If the key doesn't exist, it returns "".
+      // This perfectly handles the "assume one value" rule.
+      if query.Get(rule.key) == rule.value {
+         delete(query, rule.key)
+      }
+   }
+   parsed.RawQuery = query.Encode()
+   return parsed.String()
+}
 func GroupAndSortByUrl(offers []*EnrichedOffer) ([]string, map[string][]*EnrichedOffer) {
    groupedOffers := make(map[string][]*EnrichedOffer)
    for _, offer := range offers {
@@ -268,7 +317,7 @@ func (l Locales) Locale(tag *HrefLangTag) (*Locale, bool) {
 
 func FetchLocales(language string) (Locales, error) {
    data, err := json.Marshal(map[string]any{
-      "query": graphql_compact(fetcher_query),
+      "query": backend_constants_fetcher_query,
       "variables": map[string]string{
          "language": language,
       },
@@ -313,7 +362,7 @@ func FetchLocales(language string) (Locales, error) {
 
 func (h *HrefLangTag) Offers(localeVar *Locale) ([]Offer, error) {
    data, err := json.Marshal(map[string]any{
-      "query": graphql_compact(title_details),
+      "query": get_url_title_details,
       "variables": map[string]string{
          "country":  localeVar.Country,
          "fullPath": h.Href,
@@ -364,41 +413,6 @@ func GetPath(rawUrl string) (string, error) {
       return "", errors.New("invalid URL: scheme is missing")
    }
    return u.Path, nil
-}
-
-const fetcher_query = `
-query BackendConstantsFetcherQuery($language: Language!) {
-   locales {
-      country
-      countryName(language: $language)
-      fullLocale
-   }
-}
-`
-
-const title_details = `
-query GetUrlTitleDetails(
-   $fullPath: String!
-   $country: Country!
-   $platform: Platform! = WEB
-) {
-   url(fullPath: $fullPath) {
-      node {
-         ... on MovieOrShowOrSeason {
-            offers(country: $country, platform: $platform) {
-               elementCount
-               monetizationType
-               standardWebURL
-            }
-         }
-      }
-   }
-}
-`
-
-// this is better than strings.Replace and strings.ReplaceAll
-func graphql_compact(data string) string {
-   return strings.Join(strings.Fields(data), " ")
 }
 
 type Content struct {
