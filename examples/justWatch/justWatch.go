@@ -21,18 +21,21 @@ func main() {
       DisableKeepAlives: true, // github.com/golang/go/issues/25793
       Proxy: func(req *http.Request) (*url.URL, error) {
          if req.URL.Path != "/graphql" {
+            if req.Method == "" {
+               req.Method = "GET"
+            }
             log.Println(req.Method, req.URL)
          }
-         return http.ProxyFromEnvironment(req)
+         return nil, nil
       },
    }
-   err := new(command).run()
+   err := new(client).do()
    if err != nil {
       log.Fatal(err)
    }
 }
 
-func (c *command) run() error {
+func (c *client) do() error {
    flag.StringVar(&c.address, "a", "", "address")
    flag.DurationVar(&c.sleep, "s", 99*time.Millisecond, "sleep")
    flag.StringVar(&c.filters, "f", "BUY,CINEMA,FAST,RENT", "filters")
@@ -45,13 +48,13 @@ func (c *command) run() error {
    return nil
 }
 
-type command struct {
+type client struct {
    address string
    filters string
    sleep   time.Duration
 }
 
-func (c *command) do_address() error {
+func (c *client) do_address() error {
    url_path, err := justWatch.GetPath(c.address)
    if err != nil {
       return err
