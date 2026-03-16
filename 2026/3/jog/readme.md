@@ -1,17 +1,6 @@
 # jog
 
-## Week 1 (Goal: 7 Miles)
-
-*   Sunday, Mar 8: 3 miles
-*   Monday, Mar 9: Rest
-*   Tuesday, Mar 10: Rest
-*   Wednesday, Mar 11: Rest
-*   Thursday, Mar 12: Rest
-*   Friday, Mar 13: 1 mile
-*   Saturday, Mar 14: 3 miles
-*   Total: 7 miles (+1 increase)
-
-## Week 2 (Goal: 8 Miles)
+## Week 1 (Goal: 8 Miles)
 
 *   Sunday, Mar 15: 3 miles
 *   Monday, Mar 16: Rest
@@ -22,7 +11,7 @@
 *   Saturday, Mar 21: 3 miles
 *   Total: 8 miles (+1 increase)
 
-## Week 3 (Goal: 9 Miles)
+## Week 2 (Goal: 9 Miles)
 
 *   Sunday, Mar 22: 3 miles
 *   Monday, Mar 23: Rest
@@ -33,7 +22,7 @@
 *   Saturday, Mar 28: 3 miles
 *   Total: 9 miles (+1 increase)
 
-## Week 4 (Goal: 10 Miles)
+## Week 3 (Goal: 10 Miles)
 
 *   Sunday, Mar 29: 3 miles
 *   Monday, Mar 30: Rest
@@ -44,7 +33,7 @@
 *   Saturday, Apr 4: 4 miles
 *   Total: 10 miles (+1 increase)
 
-## Week 5 (Goal: 11 Miles)
+## Week 4 (Goal: 11 Miles)
 
 *   Sunday, Apr 5: 4 miles
 *   Monday, Apr 6: Rest
@@ -55,7 +44,7 @@
 *   Saturday, Apr 11: 4 miles
 *   Total: 11 miles (+1 increase)
 
-## Week 6 (Goal: 12 Miles - Final Schedule)
+## Week 5 (Goal: 12 Miles - Final Schedule)
 
 *   Sunday, Apr 12: 4 miles
 *   Monday, Apr 13: Rest
