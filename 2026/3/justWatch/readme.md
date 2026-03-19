@@ -16,6 +16,7 @@
 - https://justwatch.com/us/movie/wuthering-heights-2026
 - https://justwatch.com/us/tv-show/his-and-hers
 - https://justwatch.com/us/tv-show/ponies
+- https://justwatch.com/us/tv-show/the-madison
 
 ## 2025
 
