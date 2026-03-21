@@ -88,7 +88,7 @@
 - https://justwatch.com/us/movie/fresh-2022
 - https://justwatch.com/us/movie/knives-out-2
 - https://justwatch.com/us/movie/tar-2022
-- https://justwatch.com/us/movie/wifelike
+- https://justwatch.com/us/tv-show/1923
 - https://justwatch.com/us/tv-show/she-hulk
 - https://justwatch.com/us/tv-show/the-bear
 - https://justwatch.com/us/tv-show/wecrashed
@@ -274,6 +274,10 @@ https://justwatch.com/us/movie/back-to-the-future-part-i
 
 - https://justwatch.com/us/movie/indiana-jones-and-the-raiders-of-the-lost-ark
 - https://justwatch.com/us/movie/possession-1981
+
+## 1979
+
+https://justwatch.com/us/movie/alien
 
 ## 1977
 
