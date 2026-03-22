@@ -85,18 +85,19 @@ func (c *client) write_go(req *http.Request) error {
    value.URL = req.URL
    value.Header = req.Header
    if req.Body != nil {
-      data, err := io.ReadAll(req.Body)
+      var data strings.Builder
+      _, err := io.Copy(&data, req.Body)
       if err != nil {
          return err
       }
       if c.form {
-         form, err := url.ParseQuery(string(data))
+         form, err := url.ParseQuery(data.String())
          if err != nil {
             return err
          }
          value.RawBody = fmt.Sprintf("\n%#v.Encode(),\n", form)
       } else {
-         value.RawBody = fmt.Sprintf("%#q", data)
+         value.RawBody = fmt.Sprintf("%#q", data.String())
       }
       value.Body = "io.NopCloser(strings.NewReader(data))"
    } else {

@@ -199,7 +199,8 @@ https://justwatch.com/us/movie/syriana
 
 ## 2004
 
-https://justwatch.com/us/movie/the-village
+- https://justwatch.com/us/movie/howls-moving-castle
+- https://justwatch.com/us/movie/the-village
 
 ## 2003
 
