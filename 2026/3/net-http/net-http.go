@@ -16,6 +16,47 @@ import (
    "text/template"
 )
 
+// this is needed because http.ReadRequest is trash
+func read_request(r *bufio.Reader) (*http.Request, error) {
+   var req http.Request
+   text := textproto.NewReader(r)
+   // .Method
+   raw_method_path, err := text.ReadLine()
+   if err != nil {
+      return nil, err
+   }
+   method_path := strings.Fields(raw_method_path)
+   req.Method = method_path[0]
+   // .URL
+   ref, err := url.ParseRequestURI(method_path[1])
+   if err != nil {
+      return nil, err
+   }
+   req.URL = ref
+   // .URL.Host
+   head, err := text.ReadMIMEHeader()
+   if err != nil {
+      return nil, err
+   }
+   if req.URL.Host == "" {
+      req.URL.Host = head.Get("Host")
+   }
+   // .Header
+   req.Header = http.Header(head)
+   // .Body
+   data := &bytes.Buffer{}
+   length, err := text.R.WriteTo(data)
+   if err != nil {
+      return nil, err
+   }
+   if length >= 1 {
+      req.Body = io.NopCloser(data)
+   }
+   // .ContentLength
+   req.ContentLength = length
+   return &req, nil
+}
+
 func (c *client) do() error {
    flag.BoolVar(&c.form, "f", false, "form")
    flag.BoolVar(&c.golang, "g", false, "request as Go code")
@@ -141,44 +182,3 @@ func new_file(name string) (*os.File, error) {
 }
 //go:embed .net-http.go
 var content embed.FS
-
-// this is needed because http.ReadRequest is trash
-func read_request(r *bufio.Reader) (*http.Request, error) {
-   var req http.Request
-   text := textproto.NewReader(r)
-   // .Method
-   raw_method_path, err := text.ReadLine()
-   if err != nil {
-      return nil, err
-   }
-   method_path := strings.Fields(raw_method_path)
-   req.Method = method_path[0]
-   // .URL
-   ref, err := url.ParseRequestURI(method_path[1])
-   if err != nil {
-      return nil, err
-   }
-   req.URL = ref
-   // .URL.Host
-   head, err := text.ReadMIMEHeader()
-   if err != nil {
-      return nil, err
-   }
-   if req.URL.Host == "" {
-      req.URL.Host = head.Get("Host")
-   }
-   // .Header
-   req.Header = http.Header(head)
-   // .Body
-   data := &bytes.Buffer{}
-   length, err := text.R.WriteTo(data)
-   if err != nil {
-      return nil, err
-   }
-   if length >= 1 {
-      req.Body = io.NopCloser(data)
-   }
-   // .ContentLength
-   req.ContentLength = length
-   return &req, nil
-}
