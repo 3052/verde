@@ -13,6 +13,7 @@ var contains = []string{
    "JASON'S DELI",
    "LA MADELEINE",
    "MCDONALD'S",
+   "SCHLOTZSKYS",
    "SPRING CREEK",
    "WENDY",
    "WHATABURGER",

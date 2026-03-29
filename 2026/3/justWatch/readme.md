@@ -7,6 +7,7 @@
 - https://justwatch.com/us/movie/huntington
 - https://justwatch.com/us/movie/in-the-grey
 - https://justwatch.com/us/movie/mike-and-nick-and-nick-and-alice
+- https://justwatch.com/us/movie/outcome
 - https://justwatch.com/us/movie/project-hail-mary
 - https://justwatch.com/us/movie/rip-0
 - https://justwatch.com/us/movie/send-help
@@ -15,6 +16,7 @@
 - https://justwatch.com/us/movie/the-dish-2026-1
 - https://justwatch.com/us/movie/the-drama
 - https://justwatch.com/us/movie/the-odyssey-2026
+- https://justwatch.com/us/movie/wild-horse-nine
 - https://justwatch.com/us/movie/wuthering-heights-2026
 - https://justwatch.com/us/tv-show/his-and-hers
 - https://justwatch.com/us/tv-show/ponies
@@ -182,6 +184,7 @@
 - https://justwatch.com/us/movie/the-american
 - https://justwatch.com/us/movie/the-town
 - https://justwatch.com/us/movie/inception
+- https://justwatch.com/us/movie/tron-2-0
 
 ## 2009
 
