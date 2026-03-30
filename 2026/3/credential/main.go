@@ -45,7 +45,8 @@ func run(host, key, file string) error {
 
    // 3. Validate host flag
    if host == "" {
-      return fmt.Errorf("usage: credential -h <host> [-k <key>]")
+      flag.Usage()
+      return nil
    }
 
    // 4. Read the target credentials JSON file
