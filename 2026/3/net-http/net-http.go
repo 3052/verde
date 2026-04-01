@@ -145,7 +145,7 @@ func (c *client) write_go(req *http.Request) error {
       value.RawBody = `""`
       value.Body = "nil"
    }
-   temp, err := template.ParseFS(content, ".net-http.go")
+   temp, err := template.ParseFS(content, "net-http.tmpl")
    if err != nil {
       return err
    }
@@ -181,5 +181,5 @@ func new_file(name string) (*os.File, error) {
    return os.Stdout, nil
 }
 
-//go:embed .net-http.go
+//go:embed net-http.tmpl
 var content embed.FS
