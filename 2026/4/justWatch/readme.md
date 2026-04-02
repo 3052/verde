@@ -8,6 +8,7 @@
 - https://justwatch.com/us/movie/huntington
 - https://justwatch.com/us/movie/in-the-grey
 - https://justwatch.com/us/movie/mike-and-nick-and-nick-and-alice
+- https://justwatch.com/us/movie/mother-mary
 - https://justwatch.com/us/movie/outcome
 - https://justwatch.com/us/movie/project-hail-mary
 - https://justwatch.com/us/movie/rip-0
