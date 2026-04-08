@@ -17,6 +17,7 @@
 - https://justwatch.com/us/movie/the-devil-wears-prada-2
 - https://justwatch.com/us/movie/the-dish-2026-1
 - https://justwatch.com/us/movie/the-drama
+- https://justwatch.com/us/movie/the-invite-2026
 - https://justwatch.com/us/movie/the-odyssey-2026
 - https://justwatch.com/us/movie/wild-horse-nine
 - https://justwatch.com/us/movie/wuthering-heights-2026
