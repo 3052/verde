@@ -100,6 +100,7 @@
 - https://justwatch.com/us/movie/fresh-2022
 - https://justwatch.com/us/movie/knives-out-2
 - https://justwatch.com/us/movie/tar-2022
+- https://justwatch.com/us/movie/the-northman
 - https://justwatch.com/us/tv-show/1923
 - https://justwatch.com/us/tv-show/she-hulk
 - https://justwatch.com/us/tv-show/the-bear
