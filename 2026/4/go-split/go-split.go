@@ -12,7 +12,8 @@ import (
 func main() {
    // Ensure an input file was provided
    if len(os.Args) < 2 {
-      fmt.Printf("Usage: go run %s <input_file.txt>\n", filepath.Base(os.Args[0]))
+      // Removed the hardcoded "go run"
+      fmt.Printf("Usage: %s <input_file.txt>\n", filepath.Base(os.Args[0]))
       os.Exit(1)
    }
 
@@ -43,7 +44,6 @@ func main() {
 
       // Detect the START marker
       if strings.HasPrefix(line, startMarker) && strings.HasSuffix(line, markerSuffix) {
-         // If a file is already open, close it before opening a new one
          if currentFile != nil {
             currentFile.Close()
             currentFile = nil
@@ -52,12 +52,10 @@ func main() {
          // Extract the filename from the marker
          filename := strings.TrimSuffix(strings.TrimPrefix(line, startMarker), markerSuffix)
 
-         // Ensure the directory structure exists (just in case the filename includes folders)
          if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
             log.Fatalf("Failed to create directories for %s: %v", filename, err)
          }
 
-         // Create the file
          currentFile, err = os.Create(filename)
          if err != nil {
             log.Fatalf("Failed to create file %s: %v", filename, err)
@@ -77,7 +75,7 @@ func main() {
          continue
       }
 
-      // Write the line to the current file (if we are inside a START/END block)
+      // Write the line to the current file
       if currentFile != nil {
          if _, err := currentFile.WriteString(line + "\n"); err != nil {
             log.Fatalf("Failed to write to file: %v", err)
