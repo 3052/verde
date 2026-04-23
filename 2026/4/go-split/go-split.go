@@ -12,7 +12,6 @@ import (
 func main() {
    // Ensure an input file was provided
    if len(os.Args) < 2 {
-      // Removed the hardcoded "go run"
       fmt.Printf("Usage: %s <input_file.txt>\n", filepath.Base(os.Args[0]))
       os.Exit(1)
    }
@@ -33,8 +32,12 @@ func main() {
    }()
 
    scanner := bufio.NewScanner(inputFile)
-   startMarker := "// --- START OF FILE "
-   endMarker := "// --- END OF FILE "
+
+   // Supported start and end marker prefixes
+   startMarker1 := "// --- START OF FILE "
+   startMarker2 := "--- START OF FILE "
+   endMarker1 := "// --- END OF FILE "
+   endMarker2 := "--- END OF FILE "
    markerSuffix := " ---"
 
    filesCreated := 0
@@ -42,15 +45,25 @@ func main() {
    for scanner.Scan() {
       line := scanner.Text()
 
+      isStart1 := strings.HasPrefix(line, startMarker1)
+      isStart2 := strings.HasPrefix(line, startMarker2)
+
       // Detect the START marker
-      if strings.HasPrefix(line, startMarker) && strings.HasSuffix(line, markerSuffix) {
+      if (isStart1 || isStart2) && strings.HasSuffix(line, markerSuffix) {
          if currentFile != nil {
             currentFile.Close()
             currentFile = nil
          }
 
-         // Extract the filename from the marker
-         filename := strings.TrimSuffix(strings.TrimPrefix(line, startMarker), markerSuffix)
+         // Extract the filename from whichever marker matched
+         var filename string
+         if isStart1 {
+            filename = strings.TrimPrefix(line, startMarker1)
+         } else {
+            filename = strings.TrimPrefix(line, startMarker2)
+         }
+         filename = strings.TrimSuffix(filename, markerSuffix)
+         filename = strings.TrimSpace(filename)
 
          if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
             log.Fatalf("Failed to create directories for %s: %v", filename, err)
@@ -67,7 +80,10 @@ func main() {
       }
 
       // Detect the END marker
-      if strings.HasPrefix(line, endMarker) && strings.HasSuffix(line, markerSuffix) {
+      isEnd1 := strings.HasPrefix(line, endMarker1)
+      isEnd2 := strings.HasPrefix(line, endMarker2)
+
+      if (isEnd1 || isEnd2) && strings.HasSuffix(line, markerSuffix) {
          if currentFile != nil {
             currentFile.Close()
             currentFile = nil
