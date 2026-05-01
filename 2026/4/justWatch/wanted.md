@@ -15,6 +15,7 @@
 - https://justwatch.com/us/movie/obsession-2026
 - https://justwatch.com/us/movie/outcome
 - https://justwatch.com/us/movie/project-hail-mary
+- https://justwatch.com/us/movie/resident-evil-2026
 - https://justwatch.com/us/movie/rip-0
 - https://justwatch.com/us/movie/send-help
 - https://justwatch.com/us/movie/the-bride-2025

@@ -16,7 +16,6 @@ import (
 )
 
 var yt_imgs = []string{
-   // ... (keep all 34 elements exactly as they were) ...
    0:  "sddefault.webp",
    1:  "sddefault.jpg",
    2:  "sd1.webp",
@@ -162,12 +161,25 @@ func read_songs(name string) ([]map[string]any, error) {
    return songs, nil
 }
 
+// Helper to handle the repeating logic of formatting and writing JSON
+func write_songs(name string, songs []map[string]any) error {
+   var buf bytes.Buffer
+   enc := json.NewEncoder(&buf)
+   enc.SetEscapeHTML(false)
+   enc.SetIndent("", " ")
+   err := enc.Encode(songs)
+   if err != nil {
+      return err
+   }
+   return write_file(name, buf.Bytes())
+}
+
 func main() {
    log.SetFlags(log.Ltime)
    name := flag.String("n", "umber.json", "name")
    video_url := flag.String("u", "", "video URL")
    flag.Parse()
-   
+
    if *video_url != "" {
       u, err := url.Parse(*video_url)
       if err != nil {
@@ -189,17 +201,56 @@ func main() {
 }
 
 func do_video_id(video_id, name string) error {
+   raw_songs, err := read_songs(name)
+   if err != nil {
+      if !errors.Is(err, os.ErrNotExist) {
+         return err
+      }
+      raw_songs = []map[string]any{}
+   }
+
+   seen := make(map[string]bool)
+   var songs []map[string]any
+   input_exists := false
+
+   // Iterate through ALL existing records to filter out duplicates
+   for _, song := range raw_songs {
+      if id, ok := song["I"].(string); ok {
+         // Check if the input we are trying to add already exists
+         if id == video_id {
+            input_exists = true
+         }
+         // If we haven't seen this ID yet in the loop, keep it and mark it as seen
+         if !seen[id] {
+            seen[id] = true
+            songs = append(songs, song)
+         }
+      } else {
+         // Safety fallback: if the record is missing the "I" string, keep it to prevent data loss
+         songs = append(songs, song)
+      }
+   }
+
+   if input_exists {
+      // If pre-existing duplicates were found and cleaned from the file, save the clean file before exiting.
+      if len(songs) < len(raw_songs) {
+         log.Printf("Cleaned up %d pre-existing duplicate(s) in %s\n", len(raw_songs)-len(songs), name)
+         _ = write_songs(name, songs)
+      }
+      return fmt.Errorf("duplicate found: video ID '%s' already exists in %s", video_id, name)
+   }
+
    play, err := fetch_player(video_id)
    if err != nil {
       return err
    }
    fmt.Println(play.VideoDetails.ShortDescription)
-   
+
    image, err := get_image(video_id)
    if err != nil {
       return err
    }
-   
+
    // Insert native map data
    song_data := map[string]any{
       "D": time.Now().Unix(),
@@ -210,21 +261,9 @@ func do_video_id(video_id, name string) error {
    if image != "" {
       song_data["A"] = image
    }
-   
-   songs, err := read_songs(name)
-   if err != nil {
-      return err
-   }
+
    songs = slices.Insert(songs, 0, song_data)
-   
-   var buf bytes.Buffer
-   enc := json.NewEncoder(&buf)
-   enc.SetEscapeHTML(false)
-   enc.SetIndent("", " ")
-   err = enc.Encode(songs)
-   if err != nil {
-      return err
-   }
-   
-   return write_file(name, buf.Bytes())
+
+   // Save the newly cleaned and updated list
+   return write_songs(name, songs)
 }

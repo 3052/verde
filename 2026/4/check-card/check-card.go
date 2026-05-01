@@ -113,9 +113,10 @@ func extractRecentDescriptions(filename string, today time.Time, lookbackDays in
 
                   parsedDate := time.Date(year, parsedMMDD.Month(), parsedMMDD.Day(), 0, 0, 0, 0, today.Location())
 
-                  if !parsedDate.Before(cutoffDate) {
+                  if parsedDate.After(cutoffDate) {
                      validDescriptions = append(validDescriptions, desc)
                   }
+
                }
             }
          }
