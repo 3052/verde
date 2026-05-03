@@ -10,6 +10,7 @@ import (
    "net/http"
    "net/url"
    "os"
+   "os/exec"
    "path/filepath"
    "slices"
    "strings"
@@ -25,58 +26,25 @@ type Location struct {
    Country Country `json:"country"`
 }
 
-type Technology struct {
-   ID         int    `json:"id"`
-   Name       string `json:"name"`
-   Identifier string `json:"identifier"`
-}
-
 type Server struct {
-   ID           int          `json:"id"`
-   Name         string       `json:"name"`
-   Hostname     string       `json:"hostname"`
-   Load         int          `json:"load"`
-   Status       string       `json:"status"`
-   Locations    []Location   `json:"locations"`
-   Technologies []Technology `json:"technologies"`
+   Name      string     `json:"name"`
+   Hostname  string     `json:"hostname"`
+   Load      int        `json:"load"`
+   Locations []Location `json:"locations"`
 }
 
-// GetFastestServers filters by country code, checks for proxy_ssl, sorts by lowest load, and limits the result.
+// GetFastestServers filters by country code, sorts by lowest load, and limits the result.
 func GetFastestServers(servers []*Server, countryCode string, limit int) []*Server {
    var filtered []*Server
 
-   // 1. Filter by country code, online status, and proxy_ssl technology
+   // 1. Filter by country code
    for _, s := range servers {
-      if s.Status != "online" {
-         continue
-      }
-
-      // Check if the server is in the target country
-      hasCountry := false
       for _, loc := range s.Locations {
          if strings.EqualFold(loc.Country.Code, countryCode) {
-            hasCountry = true
+            filtered = append(filtered, s)
             break
          }
       }
-      if !hasCountry {
-         continue
-      }
-
-      // Check if the server supports proxy_ssl
-      hasProxySSL := false
-      for _, tech := range s.Technologies {
-         if tech.Identifier == "proxy_ssl" {
-            hasProxySSL = true
-            break
-         }
-      }
-      if !hasProxySSL {
-         continue
-      }
-
-      // If it passes all checks, add it to our filtered list
-      filtered = append(filtered, s)
    }
 
    // 2. Sort the filtered pointers by Load
@@ -99,7 +67,8 @@ func refreshFile(filePath string) error {
       RawQuery: "limit=0",
    }
 
-   fmt.Printf("Downloading latest server list from %s...\n", u.String())
+   // Print info to Stderr so Stdout remains clean for scripting
+   fmt.Fprintf(os.Stderr, "Downloading latest server list from %s...\n", u.String())
    resp, err := http.Get(u.String())
    if err != nil {
       return fmt.Errorf("failed to fetch data: %w", err)
@@ -125,8 +94,31 @@ func refreshFile(filePath string) error {
       return fmt.Errorf("failed to write data to file: %w", err)
    }
 
-   fmt.Println("Server list successfully updated.")
+   fmt.Fprintln(os.Stderr, "Server list successfully updated.")
    return nil
+}
+
+func getCredentials() (string, string, error) {
+   cmd := exec.Command("credential", "-j=api.nordvpn.com")
+   output, err := cmd.Output()
+   if err != nil {
+      return "", "", fmt.Errorf("failed to run credential command: %w", err)
+   }
+
+   var creds []struct {
+      Username string
+      Password string
+   }
+
+   if err := json.Unmarshal(output, &creds); err != nil {
+      return "", "", fmt.Errorf("failed to parse credentials JSON: %w", err)
+   }
+
+   if len(creds) == 0 {
+      return "", "", fmt.Errorf("no credentials found in command output")
+   }
+
+   return creds[0].Username, creds[0].Password, nil
 }
 
 func main() {
@@ -189,15 +181,32 @@ func main() {
 
    fastest := GetFastestServers(servers, targetCountry, limit)
 
-   // 7. Print the results
    if len(fastest) == 0 {
-      fmt.Printf("No online 'proxy_ssl' servers found for %s.\n", targetCountry)
       return
    }
 
-   fmt.Printf("Top %d fastest 'proxy_ssl' servers for %s:\n", limit, targetCountry)
-   fmt.Println("-------------------------------------------------")
+   // 7. Get credentials
+   username, password, err := getCredentials()
+   if err != nil {
+      log.Fatalf("Failed to retrieve credentials: %v", err)
+   }
+
+   // 8. Print the results in strict key-value line output format to Stdout
    for i, s := range fastest {
-      fmt.Printf("%d. %s (%s) - Load: %d%%\n", i+1, s.Name, s.Hostname, s.Load)
+      // Using url.URL safely URL-encodes the password and formats the string
+      u := url.URL{
+         Scheme: "https",
+         User:   url.UserPassword(username, password),
+         Host:   fmt.Sprintf("%s:89", s.Hostname),
+      }
+
+      fmt.Printf("name: %s\n", s.Name)
+      fmt.Printf("load: %d\n", s.Load)
+      fmt.Printf("url: %s\n", u.String())
+
+      // Print a blank line between items, except after the very last one
+      if i < len(fastest)-1 {
+         fmt.Println()
+      }
    }
 }
