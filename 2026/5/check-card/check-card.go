@@ -14,6 +14,19 @@ import (
    "time"
 )
 
+var targets = []string{
+   "BRAUMS STORE",
+   "CHICK-FIL-A",
+   "JASON'S DELI",
+   "LA MADELEINE",
+   "MCDONALD'S",
+   "SCHLOTZSKYS",
+   "SPRING CREEK",
+   "STARBUCKS",
+   "WENDY",
+   "WHATABURGER",
+}
+
 // MatchResult holds a Count and the target Description
 type MatchResult struct {
    Description string
@@ -29,18 +42,6 @@ func main() {
    if *inputFile == "" {
       flag.Usage()
       os.Exit(1)
-   }
-
-   targets := []string{
-      "BRAUMS STORE",
-      "CHICK-FIL-A",
-      "JASON'S DELI",
-      "LA MADELEINE",
-      "MCDONALD'S",
-      "SCHLOTZSKYS",
-      "SPRING CREEK",
-      "WENDY",
-      "WHATABURGER",
    }
 
    now := time.Now()
