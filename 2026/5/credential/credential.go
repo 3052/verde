@@ -233,6 +233,7 @@ func run(host, file string, jsonOut bool) error {
    // 7. Search and output
    return searchAndPrint(credentials, host, jsonOut)
 }
+
 // getConfigPath determines where to save/load the configuration file
 func getConfigPath() (string, error) {
    configDir, err := os.UserConfigDir()

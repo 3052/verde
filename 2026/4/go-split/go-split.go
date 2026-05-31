@@ -24,7 +24,7 @@ func main() {
    scanner := bufio.NewScanner(inputFile)
 
    startMarker := "// FILE: "
-   
+
    var currentFilename string
    var content strings.Builder
    filesCreated := 0
@@ -51,7 +51,7 @@ func main() {
       // Detect the start of a new file
       if strings.HasPrefix(line, startMarker) {
          saveCurrentFile() // Save previous file
-         
+
          currentFilename = strings.TrimPrefix(line, startMarker)
          currentFilename = strings.TrimSpace(currentFilename)
          continue
