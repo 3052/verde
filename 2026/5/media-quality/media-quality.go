@@ -17,15 +17,14 @@ const (
    SizeThreshold = 4 * int64(GB)
 )
 
-// Define the extensions we consider "valid".
-// Everything else will be flagged. Must be lowercase.
 var allowedExtensions = map[string]bool{
    ".mp4": true,
    ".m4a": true,
    ".md":  true,
-   ".ini": true, // often created by Windows or media scrapers
-   ".jpg": true, // cover art / thumbnails
-   ".vtt": true, // subtitle files
+   ".ini": true,
+   ".jpg": true,
+   ".vtt": true,
+   ".ts":  true,
 }
 
 func main() {
@@ -48,7 +47,6 @@ func main() {
             return nil
          }
 
-         // We will collect any "violations" for this file in a slice (list)
          var flags []string
 
          // --- RULE 1: Size Check ---
@@ -58,11 +56,8 @@ func main() {
          }
 
          // --- RULE 2: Extension Check ---
-         // filepath.Ext gets the extension (including the dot).
-         // strings.ToLower ensures ".JPG" matches ".jpg".
          ext := strings.ToLower(filepath.Ext(path))
 
-         // If the extension is NOT in our map, flag it
          if !allowedExtensions[ext] {
             if ext == "" {
                flags = append(flags, "No Extension")
@@ -72,7 +67,6 @@ func main() {
          }
 
          // --- REPORTING ---
-         // If the file triggered any flags, print it out
          if len(flags) > 0 {
             flagString := strings.Join(flags, ", ")
             fmt.Printf("[%s] %s\n", flagString, path)
