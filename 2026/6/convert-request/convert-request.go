@@ -40,10 +40,9 @@ const goCodeTemplate = `package main
 
 import (
 {{if .HasBody}}   "bytes"
-{{end}}   "fmt"
-   "io"
-   "net/http"
+{{end}}   "net/http"
    "net/url"
+   "os"
 )
 
 func main() {
@@ -78,15 +77,9 @@ func main() {
    if err != nil {
       panic(err)
    }
-   defer resp.Body.Close()
-
-   respBody, err := io.ReadAll(resp.Body)
-   if err != nil {
+   if err := resp.Write(os.Stdout); err != nil {
       panic(err)
    }
-   
-   fmt.Println(resp.StatusCode)
-   fmt.Println(string(respBody))
 }
 
 `
@@ -189,12 +182,14 @@ func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
       }
    }
 
-   protocol := "https"
-   if strings.Contains(host, "localhost") || strings.Contains(host, "127.0.0.1") {
-      protocol = "http"
+   var rawURL string
+   if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+      rawURL = path
+   } else {
+      rawURL = "https://" + host + path
    }
 
-   parsedURL, err := url.Parse(protocol + "://" + host + path)
+   parsedURL, err := url.Parse(rawURL)
    if err != nil {
       return nil, err
    }
