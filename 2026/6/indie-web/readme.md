@@ -52,6 +52,8 @@ https://app.montaigne.io/auth/signin
 
 ## nekoweb.org
 
+NekoWeb is slow
+
 https://github.com/dimdenGD/dimdenGD/issues/2
 
 ## omg.lol
