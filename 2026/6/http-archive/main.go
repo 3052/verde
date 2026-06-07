@@ -6,7 +6,6 @@ import (
    "fmt"
    "os"
    "sort"
-   "strings"
 )
 
 type HAR struct {
@@ -23,10 +22,12 @@ type PartialEntry struct {
    Request         struct {
       URL      string `json:"url"`
       PostData struct {
-         MimeType string `json:"mimeType"`
-         Text     string `json:"text"`
+         MimeType string          `json:"mimeType"`
+         Text     string          `json:"text"`
+         Params   []NameValuePair `json:"params"`
       } `json:"postData"`
       Headers     []NameValuePair `json:"headers"`
+      Cookies     []NameValuePair `json:"cookies"` // Ensure cookies are mapped
       QueryString []NameValuePair `json:"queryString"`
    } `json:"request"`
    Response struct {
@@ -34,6 +35,7 @@ type PartialEntry struct {
          Text string `json:"text"`
       } `json:"content"`
       Headers []NameValuePair `json:"headers"`
+      Cookies []NameValuePair `json:"cookies"`
    } `json:"response"`
 }
 
@@ -42,60 +44,53 @@ type NameValuePair struct {
    Value string `json:"value"`
 }
 
-// stringSlice allows accepting multiple flags of the same name (e.g. -req-header A -req-header B)
-type stringSlice []string
-
-func (s *stringSlice) String() string {
-   return strings.Join(*s, ", ")
-}
-
-func (s *stringSlice) Set(value string) error {
-   *s = append(*s, value)
-   return nil
-}
-
 type TraceConfig struct {
-   TargetTime string
-   InputFile  string
-   OutputFile string
-   Headers    []string
-   Queries    []string
-   JSONKeys   []string
+   Headers  []string `json:"headers"`
+   Queries  []string `json:"queries"`
+   JSONKeys []string `json:"jsonKeys"`
+   FormKeys []string `json:"formKeys"`
+   Cookies  []string `json:"cookies"` // Added Cookies to the config
+
+   TargetTime string `json:"-"`
+   InputFile  string `json:"-"`
+   OutputFile string `json:"-"`
 }
 
 func main() {
    var config TraceConfig
-   var headers, queries, jsonKeys stringSlice
 
    flag.StringVar(&config.InputFile, "in", "", "Path to the input .har file (required)")
    flag.StringVar(&config.TargetTime, "time", "", "startedDateTime value of the target request (required)")
-
-   flag.Var(&headers, "req-header", "Name of a Request Header to trace (can be specified multiple times)")
-   flag.Var(&queries, "req-query", "Name of a URL Query Parameter to trace (can be specified multiple times)")
-   flag.Var(&jsonKeys, "req-json", "Name of a JSON body key to trace (can be specified multiple times)")
+   configFile := flag.String("config", "", "Path to the JSON configuration file containing keys to trace (required)")
 
    flag.Parse()
 
-   if config.InputFile == "" || config.TargetTime == "" {
+   if config.InputFile == "" || config.TargetTime == "" || *configFile == "" {
       fmt.Fprintln(os.Stderr, "Error: Missing required arguments.")
       fmt.Fprintln(os.Stderr, "Usage:")
       flag.PrintDefaults()
       os.Exit(1)
    }
 
-   config.Headers = headers
-   config.Queries = queries
-   config.JSONKeys = jsonKeys
+   configData, err := os.ReadFile(*configFile)
+   if err != nil {
+      fmt.Fprintf(os.Stderr, "Fatal error reading config file: %v\n", err)
+      os.Exit(1)
+   }
+
+   if err := json.Unmarshal(configData, &config); err != nil {
+      fmt.Fprintf(os.Stderr, "Fatal error parsing config JSON: %v\n", err)
+      os.Exit(1)
+   }
+
    config.OutputFile = "output.har"
 
-   // Passed as a pointer
    if err := processHAR(&config); err != nil {
       fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
       os.Exit(1)
    }
 }
 
-// Accepts *TraceConfig
 func processHAR(cfg *TraceConfig) error {
    data, err := os.ReadFile(cfg.InputFile)
    if err != nil {
@@ -133,7 +128,6 @@ func processHAR(cfg *TraceConfig) error {
       currIdx := queue[0]
       queue = queue[1:]
 
-      // Passed as a pointer
       valuesToTrace := extractExplicitValues(&entries[currIdx], cfg)
 
       for _, val := range valuesToTrace {
@@ -142,7 +136,7 @@ func processHAR(cfg *TraceConfig) error {
                continue
             }
 
-            if responseContainsValue(&entries[i], val) {
+            if responseContainsValue(&entries[i], cfg, val) {
                fmt.Printf("  -> Found origin of value '%s...' in response of request idx %d\n", val[:min(15, len(val))], i)
                kept[i] = true
                queue = append(queue, i)

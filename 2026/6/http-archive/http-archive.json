@@ -1,0 +1,9 @@
+{
+   "queries": ["userId"],
+   
+   "headers": ["Authorization"],
+   "cookies": ["session_id", "csrf_token"],
+   
+   "formKeys": ["grant_type", "client_id"],
+   "jsonKeys": ["token"]
+}
