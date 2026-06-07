@@ -7,6 +7,7 @@ import (
    "flag"
    "go/format"
    "io"
+   "log"
    "net/url"
    "os"
    "strconv"
@@ -97,13 +98,16 @@ func main() {
 
    reqData, err := parseRawRequest(*inputFile, *indentJSON)
    if err != nil {
-      panic(err)
+      log.Fatalf("Error parsing request: %v", err)
    }
 
    outputFile := *inputFile + ".go"
    if err = generateGoFile(reqData, outputFile); err != nil {
-      panic(err)
+      log.Fatalf("Error generating file: %v", err)
    }
+
+   // Added proper logging to confirm the file was written
+   log.Printf("Success: Generated Go code written to %s\n", outputFile)
 }
 
 func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
