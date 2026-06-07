@@ -5,7 +5,8 @@ import (
    "flag"
    "fmt"
    "os"
-   "strings"
+   "regexp"
+   "time"
 )
 
 type HAR struct {
@@ -18,18 +19,6 @@ type HAR struct {
 }
 
 type PartialEntry struct {
-   StartedDateTime string `json:"startedDateTime"`
-   Request         struct {
-      URL      string `json:"url"`
-      PostData struct {
-         MimeType string          `json:"mimeType"`
-         Text     string          `json:"text"`
-         Params   []NameValuePair `json:"params"`
-      } `json:"postData"`
-      Headers     []NameValuePair `json:"headers"`
-      Cookies     []NameValuePair `json:"cookies"`
-      QueryString []NameValuePair `json:"queryString"`
-   } `json:"request"`
    Response struct {
       Content struct {
          Text string `json:"text"`
@@ -45,74 +34,34 @@ type NameValuePair struct {
 }
 
 func main() {
-   var inputFile, targetTime string
-   var headerFlag, queryFlag, jsonFlag, formFlag, cookieFlag string
+   var inputFile, pattern string
 
    flag.StringVar(&inputFile, "in", "", "Path to the input .har file (required)")
-   flag.StringVar(&targetTime, "time", "", "startedDateTime value of the target request (required)")
-
-   flag.StringVar(&headerFlag, "header", "", "Name of the Request Header to trace")
-   flag.StringVar(&queryFlag, "query", "", "Name of the URL Query Parameter to trace")
-   flag.StringVar(&jsonFlag, "json", "", "Name of the JSON body key to trace")
-   flag.StringVar(&formFlag, "form", "", "Name of the Form data key to trace")
-   flag.StringVar(&cookieFlag, "cookie", "", "Name of the Cookie to trace")
+   flag.StringVar(&pattern, "pattern", "", "Regex pattern to match against response values (required)")
 
    flag.Parse()
 
-   if inputFile == "" || targetTime == "" {
-      fmt.Fprintln(os.Stderr, "Error: Missing required arguments (-in and -time).")
+   if inputFile == "" || pattern == "" {
+      fmt.Fprintln(os.Stderr, "Error: Missing required arguments (-in and -pattern).")
       flag.PrintDefaults()
       os.Exit(1)
    }
 
-   // Validate that at most ONE trace flag is provided
-   flagsUsed := 0
-   var traceType, traceKey string
-
-   if headerFlag != "" {
-      flagsUsed++
-      traceType = "header"
-      traceKey = headerFlag
-   }
-   if queryFlag != "" {
-      flagsUsed++
-      traceType = "query"
-      traceKey = queryFlag
-   }
-   if jsonFlag != "" {
-      flagsUsed++
-      traceType = "json"
-      traceKey = jsonFlag
-   }
-   if formFlag != "" {
-      flagsUsed++
-      traceType = "form"
-      traceKey = formFlag
-   }
-   if cookieFlag != "" {
-      flagsUsed++
-      traceType = "cookie"
-      traceKey = cookieFlag
-   }
-
-   if flagsUsed > 1 {
-      fmt.Fprintln(os.Stderr, "Fatal error: Only one trace flag (-header, -query, -json, -form, -cookie) can be used at a time.")
+   re, err := regexp.Compile(pattern)
+   if err != nil {
+      fmt.Fprintf(os.Stderr, "Fatal error: Invalid regex pattern: %v\n", err)
       os.Exit(1)
    }
 
-   // Create Windows-safe output filename from time string
-   safeTime := strings.ReplaceAll(targetTime, ":", "-")
-   safeTime = strings.ReplaceAll(safeTime, "<", "_")
-   safeTime = strings.ReplaceAll(safeTime, ">", "_")
-   outputFile := safeTime + ".har"
+   outputFile := fmt.Sprintf("%d.har", time.Now().Unix())
 
-   if err := processHAR(inputFile, targetTime, outputFile, traceType, traceKey); err != nil {
+   if err := processHAR(inputFile, outputFile, re); err != nil {
       fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
       os.Exit(1)
    }
 }
 
-func processHAR(inputFile, targetTime, outputFile, traceType, traceKey string) error {
+func processHAR(inputFile, outputFile string, re *regexp.Regexp) error {
    data, err := os.ReadFile(inputFile)
    if err != nil {
       return fmt.Errorf("error reading file: %w", err)
@@ -123,173 +72,51 @@ func processHAR(inputFile, targetTime, outputFile, traceType, traceKey string) e
       return fmt.Errorf("error parsing HAR JSON: %w", err)
    }
 
-   entries := make([]PartialEntry, len(har.Log.Entries))
-   targetIdx := -1
+   var keptEntries []json.RawMessage
 
-   // 1. Find the Target Request
+   // Iterate through all entries in the HAR
    for i, rawEntry := range har.Log.Entries {
-      if err := json.Unmarshal(rawEntry, &entries[i]); err != nil {
+      var entry PartialEntry
+      if err := json.Unmarshal(rawEntry, &entry); err != nil {
+         fmt.Fprintf(os.Stderr, "Warning: failed to parse entry %d: %v\n", i, err)
          continue
       }
-      if entries[i].StartedDateTime == targetTime {
-         targetIdx = i
-         break
-      }
-   }
 
-   if targetIdx == -1 {
-      return fmt.Errorf("target request with the specified startedDateTime not found")
-   }
+      matched := false
 
-   // 2. If NO config flags were provided, just output the chosen request and exit
-   if traceType == "" {
-      har.Log.Entries = []json.RawMessage{har.Log.Entries[targetIdx]}
-      return writeOutput(har, outputFile)
-   }
-
-   // 3. Extract the configured value from the Target Request
-   traceValue, found := extractValue(&entries[targetIdx], traceType, traceKey)
-   if !found {
-      return fmt.Errorf("the specified %s key '%s' was not found in the target request", traceType, traceKey)
-   }
-
-   // 4. Find the matching parent in previous responses
-   var matchIndices []int
-   for i := targetIdx - 1; i >= 0; i-- {
-      if responseContainsValue(&entries[i], traceKey, traceValue) {
-         matchIndices = append(matchIndices, i)
-      }
-   }
-
-   // 5. Evaluate matches
-   if len(matchIndices) == 0 {
-      return fmt.Errorf("found 0 previous responses providing the key '%s' with value '%s'", traceKey, traceValue)
-   }
-   if len(matchIndices) > 1 {
-      return fmt.Errorf("found %d previous responses providing the key '%s' with value '%s'. Expected exactly 1 match", len(matchIndices), traceKey, traceValue)
-   }
-
-   parentIdx := matchIndices[0]
-
-   // 6. Write chronological output
-   har.Log.Entries = []json.RawMessage{
-      har.Log.Entries[parentIdx],
-      har.Log.Entries[targetIdx],
-   }
-
-   return writeOutput(har, outputFile)
-}
-
-func extractValue(req *PartialEntry, traceType, traceKey string) (string, bool) {
-   switch traceType {
-   case "header":
-      for _, h := range req.Request.Headers {
-         if strings.EqualFold(h.Name, traceKey) {
-            val := strings.TrimPrefix(h.Value, "Bearer ")
-            return strings.TrimSpace(val), true
+      // 1. Check Response Cookies
+      for _, c := range entry.Response.Cookies {
+         if re.MatchString(c.Value) {
+            matched = true
+            break
          }
       }
-   case "query":
-      for _, q := range req.Request.QueryString {
-         if strings.EqualFold(q.Name, traceKey) {
-            return strings.TrimSpace(q.Value), true
-         }
-      }
-   case "cookie":
-      for _, c := range req.Request.Cookies {
-         if strings.EqualFold(c.Name, traceKey) {
-            return strings.TrimSpace(c.Value), true
-         }
-      }
-   case "form":
-      for _, p := range req.Request.PostData.Params {
-         if strings.EqualFold(p.Name, traceKey) {
-            return strings.TrimSpace(p.Value), true
-         }
-      }
-   case "json":
-      if req.Request.PostData.Text != "" {
-         var payload interface{}
-         if err := json.Unmarshal([]byte(req.Request.PostData.Text), &payload); err == nil {
-            var foundVal string
-            var found bool
-            findJSONKey(payload, traceKey, func(v string) {
-               if !found { // Take the first matching key
-                  foundVal = strings.TrimSpace(v)
-                  found = true
-               }
-            })
-            if found {
-               return foundVal, true
+
+      // 2. Check Response Headers
+      if !matched {
+         for _, h := range entry.Response.Headers {
+            if re.MatchString(h.Value) {
+               matched = true
+               break
             }
          }
       }
-   }
-   return "", false
-}
 
-func responseContainsValue(res *PartialEntry, traceKey, traceValue string) bool {
-   // 1. Check Cookies
-   for _, c := range res.Response.Cookies {
-      if strings.EqualFold(c.Name, traceKey) {
-         if c.Value == traceValue {
-            return true
+      // 3. Check Response Body Text
+      if !matched {
+         if re.MatchString(entry.Response.Content.Text) {
+            matched = true
          }
       }
-   }
 
-   // 2. Check Headers
-   for _, h := range res.Response.Headers {
-      if strings.EqualFold(h.Name, traceKey) {
-         if h.Value == traceValue {
-            return true
-         }
+      // If we found a match in any of the above, keep the entire raw entry
+      if matched {
+         keptEntries = append(keptEntries, rawEntry)
       }
    }
 
-   // 3. Check JSON Body
-   if res.Response.Content.Text != "" {
-      var payload interface{}
-      if err := json.Unmarshal([]byte(res.Response.Content.Text), &payload); err == nil {
-         found := false
-         findJSONKey(payload, traceKey, func(extracted string) {
-            if extracted == traceValue {
-               found = true
-            }
-         })
-         if found {
-            return true
-         }
-      }
-   }
+   har.Log.Entries = keptEntries
 
-   return false
-}
-
-func findJSONKey(data interface{}, targetKey string, processValue func(string)) {
-   switch val := data.(type) {
-   case map[string]interface{}:
-      for k, v := range val {
-         if strings.EqualFold(k, targetKey) {
-            switch castV := v.(type) {
-            case string:
-               processValue(castV)
-            case float64:
-               processValue(fmt.Sprintf("%v", castV))
-            case bool:
-               processValue(fmt.Sprintf("%t", castV))
-            }
-         }
-         findJSONKey(v, targetKey, processValue)
-      }
-   case []interface{}:
-      for _, item := range val {
-         findJSONKey(item, targetKey, processValue)
-      }
-   }
-}
-
-func writeOutput(har HAR, outputFile string) error {
    outData, err := json.MarshalIndent(har, "", "  ")
    if err != nil {
       return fmt.Errorf("error marshalling output: %w", err)
@@ -299,6 +126,6 @@ func writeOutput(har HAR, outputFile string) error {
       return fmt.Errorf("error writing to output file: %w", err)
    }
 
-   fmt.Printf("Success! Output saved to %s\n", outputFile)
+   fmt.Printf("Success! Kept %d matching requests. Saved to %s\n", len(keptEntries), outputFile)
    return nil
 }
