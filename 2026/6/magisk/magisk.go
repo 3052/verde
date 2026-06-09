@@ -2,98 +2,103 @@ package main
 
 import (
    "archive/zip"
+   "flag"
    "fmt"
    "io"
+   "log"
    "os"
    "os/exec"
    "path/filepath"
+   "slices"
+   "strings"
 )
 
-func main() {
-   if len(os.Args) < 3 {
-      fmt.Println("Usage: patcher <path_to_magisk_apk> <path_to_ramdisk_img>")
-      os.Exit(1)
-   }
-
-   apkPath := os.Args[1]
-   ramdiskPath := os.Args[2]
+func performPatch(apkPath string, ramdiskPath string) error {
    patchDir := "Patch_Temp"
 
-   fmt.Println("=== Step 1: Extracting and Preparing Files ===")
+   log.Print("=== Step 1: Extracting and Preparing Files ===")
 
-   err := os.MkdirAll(patchDir, 0755)
-   if err != nil {
-      fmt.Printf("Error creating temp dir: %v\n", err)
-      os.Exit(1)
+   if err := os.MkdirAll(patchDir, 0755); err != nil {
+      return fmt.Errorf("error creating temp dir: %w", err)
    }
-   defer os.RemoveAll(patchDir) // Clean up temp files when done
-
+   defer os.RemoveAll(patchDir)
    filesToExtract := map[string]string{
+      // will not boot:
       "lib/x86/libmagiskboot.so": "magiskboot",
       "lib/x86/libmagiskinit.so": "magiskinit",
-      "lib/x86/libmagisk.so":     "magisk32",
-      "lib/x86/libinit-ld.so":    "init-ld",
-      "assets/stub.apk":          "stub.apk",
+      "lib/x86/libmagisk.so":     "magisk",
+      // will boot but Magisk will not load:
+      "assets/stub.apk": "stub.apk",
+      // will boot but no root:
+      "lib/x86/libinit-ld.so": "init-ld",
    }
-
-   err = extractFromZip(apkPath, filesToExtract, patchDir)
-   if err != nil {
-      fmt.Printf("Error extracting from APK: %v\n", err)
-      os.Exit(1)
+   if err := extractFromZip(apkPath, filesToExtract, patchDir); err != nil {
+      return fmt.Errorf("error extracting from APK: %w", err)
    }
-
-   err = copyFile(ramdiskPath, filepath.Join(patchDir, "ramdisk.img"))
-   if err != nil {
-      fmt.Printf("Error copying ramdisk.img: %v\n", err)
-      os.Exit(1)
-   }
-   fmt.Println("Files prepared successfully.")
-
-   fmt.Println("\n=== Step 2: Pushing Files to Emulator ===")
-
-   runAdb("shell", "mkdir -p /data/local/tmp/patch")
-
+   log.Print("=== Step 2: Pushing Files to Emulator ===")
    pushArgs := []string{"push"}
    for _, destName := range filesToExtract {
       pushArgs = append(pushArgs, filepath.Join(patchDir, destName))
    }
-   pushArgs = append(pushArgs, filepath.Join(patchDir, "ramdisk.img"), "/data/local/tmp/patch/")
-   runAdb(pushArgs...)
+   pushArgs = append(pushArgs, "/data/local/tmp/")
+   if err := run("adb", pushArgs...); err != nil {
+      return err
+   }
+   if err := run("adb", "push", ramdiskPath, "/data/local/tmp/ramdisk.img"); err != nil {
+      return err
+   }
+   log.Print("=== Step 3: Executing CPIO Injection on Emulator ===")
+   cpioArgs := []string{
+      "./magiskboot cpio ramdisk.cpio",              // KEEP
+      "'mkdir 0750 overlay.d'",                      // KEEP
+      "'mkdir 0750 overlay.d/sbin'",                 // KEEP
+      "'mkdir 0000 .backup'",                        // KEEP
+      "'mv init .backup/init'",                      // KEEP
+      "'add 0644 overlay.d/sbin/stub.apk stub.apk'", // KEEP
+      "'add 0750 init magiskinit'",                  // KEEP
+      "'add 0755 overlay.d/sbin/init-ld init-ld'",   // KEEP
+      "'add 0755 overlay.d/sbin/magisk magisk'",
+   }
+   if err := runAdbShell(
+      "cd /data/local/tmp",
+      "chmod +x magiskboot",
+      "./magiskboot decompress ramdisk.img ramdisk.cpio",
+      strings.Join(cpioArgs, " "),
+      "./magiskboot compress=lz4_legacy ramdisk.cpio magisk_patched.img",
+   ); err != nil {
+      return err
+   }
+   log.Print("=== Step 4: Pulling Patched Image ===")
 
-   runAdb("shell", "chmod +x /data/local/tmp/patch/magiskboot")
+   if err := run("adb", "pull", "/data/local/tmp/magisk_patched.img", "."); err != nil {
+      return err
+   }
 
-   fmt.Println("\n=== Step 3: Executing CPIO Injection on Emulator ===")
-
-   fmt.Println("Decompressing ramdisk...")
-   runAdb("shell", "cd /data/local/tmp/patch && ./magiskboot decompress ramdisk.img ramdisk.cpio")
-
-   fmt.Println("Creating Magisk config...")
-   runAdb("shell", "cd /data/local/tmp/patch && printf 'KEEPVERITY=true\\nKEEPFORCEENCRYPT=true\\nRECOVERYMODE=false\\n' > config")
-
-   fmt.Println("Injecting binaries and hijacking boot sequence...")
-   cpioCmd := `cd /data/local/tmp/patch && ./magiskboot cpio ramdisk.cpio "mkdir 0000 .backup" "mv init .backup/init" "add 0000 .backup/.magisk config" "mkdir 0750 overlay.d" "mkdir 0750 overlay.d/sbin" "add 0750 init magiskinit" "add 0755 overlay.d/sbin/magisk magisk32" "add 0755 overlay.d/sbin/magisk32 magisk32" "add 0755 overlay.d/sbin/magisk64 magisk32" "add 0755 overlay.d/sbin/init-ld init-ld" "add 0644 overlay.d/sbin/stub.apk stub.apk"`
-   runAdb("shell", cpioCmd)
-
-   fmt.Println("Compressing patched ramdisk...")
-   runAdb("shell", "cd /data/local/tmp/patch && ./magiskboot compress=lz4_legacy ramdisk.cpio magisk_patched.img")
-
-   fmt.Println("Pulling patched file to current directory...")
-   runAdb("pull", "/data/local/tmp/patch/magisk_patched.img", ".")
-
-   fmt.Println("\n=== Cleaning Up Emulator Temp Files ===")
-   runAdb("shell", "rm -rf /data/local/tmp/patch")
-
-   fmt.Println("\nSUCCESS! You can now move magisk_patched.img to your SDK folder and cold boot the emulator.")
+   log.Print("SUCCESS! You can now move magisk_patched.img to your SDK folder and cold boot the emulator.")
+   return nil
 }
 
-func runAdb(args ...string) {
-   cmd := exec.Command("adb", args...)
+func runAdbShell(scripts ...string) error {
+   scripts = slices.Insert(scripts, 0, "set -e")
+
+   log.Println("Executing adb shell script:")
+   for _, s := range scripts {
+      log.Printf("  > %s", s)
+   }
+
+   cmd := exec.Command("adb", "shell")
+   cmd.Stdin = strings.NewReader(strings.Join(scripts, "\n"))
    cmd.Stdout = os.Stdout
    cmd.Stderr = os.Stderr
-   err := cmd.Run()
-   if err != nil {
-      fmt.Printf("ADB command failed: adb %v\n", args)
-   }
+   return cmd.Run()
+}
+
+func run(name string, arg ...string) error {
+   cmd := exec.Command(name, arg...)
+   log.Printf("Executing: %v", cmd.Args)
+   cmd.Stdout = os.Stdout
+   cmd.Stderr = os.Stderr
+   return cmd.Run()
 }
 
 func extractFromZip(zipPath string, filesToExtract map[string]string, destDir string) error {
@@ -106,8 +111,7 @@ func extractFromZip(zipPath string, filesToExtract map[string]string, destDir st
    foundCount := 0
    for _, f := range r.File {
       if destName, wantsFile := filesToExtract[f.Name]; wantsFile {
-         err := extractSingleFile(f, filepath.Join(destDir, destName))
-         if err != nil {
+         if err := extractSingleFile(f, filepath.Join(destDir, destName)); err != nil {
             return err
          }
          foundCount++
@@ -137,19 +141,19 @@ func extractSingleFile(f *zip.File, dest string) error {
    return err
 }
 
-func copyFile(src, dst string) error {
-   sourceFile, err := os.Open(src)
-   if err != nil {
-      return err
-   }
-   defer sourceFile.Close()
+func main() {
+   log.SetFlags(log.Ltime)
+   apkPath := flag.String("apk", "", "Path to the Magisk APK file (e.g., Magisk-v30.7.apk)")
+   ramdiskPath := flag.String("img", "", "Path to the unpatched ramdisk.img file")
 
-   destFile, err := os.Create(dst)
-   if err != nil {
-      return err
-   }
-   defer destFile.Close()
+   flag.Parse()
 
-   _, err = io.Copy(destFile, sourceFile)
-   return err
+   if *apkPath == "" || *ramdiskPath == "" {
+      flag.PrintDefaults()
+      log.Fatal("Error: Both -apk and -img flags are required.")
+   }
+
+   if err := performPatch(*apkPath, *ramdiskPath); err != nil {
+      log.Fatalf("Patching failed: %v", err)
+   }
 }
