@@ -1,5 +1,13 @@
 # arms
 
+## mon jun 8
+
+7 + 7 + 7 + 6 + 6 = 33
+
+## thu jun 4
+
+fix brakes
+
 ## wed jun 3
 
 7 + 7 + 6 + 6 + 6 = 32
