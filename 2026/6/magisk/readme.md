@@ -1,10 +1,14 @@
 # magisk
 
+- <https://github.com/topjohnwu/Magisk/blob/master/scripts/host_patch.sh>
+- https://issuetracker.google.com/issues/331256113
+- https://topjohnwu.github.io/Magisk/tools.html
+
 ~~~
 adb shell monkey -p com.topjohnwu.magisk -c android.intent.category.LAUNCHER 1
 ~~~
 
-https://topjohnwu.github.io/Magisk/tools.html
+and:
 
 ~~~
 > magisk -apk Magisk-v30.7.apk -img ramdisk.img
@@ -43,26 +47,12 @@ Dumping cpio: [ramdisk.cpio]
 /data/local/tmp/magisk_patched.img: 1 file pulled, 0 skipped. 78.5 MB/s (2015998 bytes in 0.025s)
 ~~~
 
-## Step 4: Flash the Emulator & Wipe Data
-
-1. Completely close the running TV emulator.
-2. Go to your Windows SDK folder (`%LOCALAPPDATA%\Android\Sdk\system-images\android-34\android-tv\x86\`).
-3. Rename the original `ramdisk.img` to `ramdisk.img.stock` (to keep as a backup).
-4. Move your new `magisk_patched.img` from your `Patch` folder into this SDK folder.
-5. Rename `magisk_patched.img` to exactly `ramdisk.img`.
-6. Open Android Studio Device Manager. Click the **three dots** next to your TV and click **Wipe Data**. (Crucial: Skipping this causes a permanent black screen).
-7. Click the **three dots** again and click **Cold Boot Now**.
-
-## Step 5: Finalize Magisk
-
 1. Once the TV reaches the home screen, install the Magisk app from your
    PowerShell window (rename your zip back to apk first):
    `adb install Magisk-v30.7.apk`
 2. Open the Magisk app on the TV. It will say Installed 30.7. 
 3. your device needs additional setup for Magisk to work properly. Do you want
    to proceed and reboot? OK
-4. Navigate to the **Superuser** tab (the shield icon at the bottom).
-5. Toggle the switch ON for **[SharedUID] Shell (com.android.shell)**.
 
 You now have unrestricted `su` root access on an API 34 Android TV emulator.
 Install your ARM APK, launch it, and use the Superuser tab to grant it root
