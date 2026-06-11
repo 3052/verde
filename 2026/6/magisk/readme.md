@@ -2,6 +2,7 @@
 
 - <https://github.com/topjohnwu/Magisk/blob/master/scripts/host_patch.sh>
 - https://issuetracker.google.com/issues/331256113
+- https://issuetracker.google.com/issues/522344738
 - https://topjohnwu.github.io/Magisk/tools.html
 
 ~~~
