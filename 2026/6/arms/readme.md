@@ -1,8 +1,10 @@
 # arms
 
+10 + 8 + 7 + 6 + 5 = 36
+
 ## thu jun 11
 
-10 + 8 + 7 + 6 + 5 = 36
+jogged instead
 
 ## wed jun 10
 

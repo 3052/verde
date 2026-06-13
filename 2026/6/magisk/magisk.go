@@ -22,19 +22,21 @@ func performPatch(apkPath string, ramdiskPath string) error {
       return fmt.Errorf("error creating temp dir: %w", err)
    }
    defer os.RemoveAll(patchDir)
+
+   log.Print("=== Using x86_64 (64-bit) Files ===")
    filesToExtract := map[string]string{
-      // will not boot:
-      "lib/x86/libmagiskboot.so": "magiskboot",
-      "lib/x86/libmagiskinit.so": "magiskinit",
-      "lib/x86/libmagisk.so":     "magisk",
-      // will boot but Magisk will not load:
-      "assets/stub.apk": "stub.apk",
-      // will boot but no root:
-      "lib/x86/libinit-ld.so": "init-ld",
+      "lib/x86_64/libmagiskboot.so": "magiskboot",
+      "lib/x86_64/libmagiskinit.so": "magiskinit",
+      "lib/x86_64/libmagisk.so":     "magisk",
+      "lib/x86/libmagisk.so":        "magisk32", // Required for Zygisk hooking 32-bit apps on 64-bit systems
+      "assets/stub.apk":             "stub.apk",
+      "lib/x86_64/libinit-ld.so":    "init-ld",
    }
+
    if err := extractFromZip(apkPath, filesToExtract, patchDir); err != nil {
       return fmt.Errorf("error extracting from APK: %w", err)
    }
+
    log.Print("=== Step 2: Pushing Files to Emulator ===")
    pushArgs := []string{"push"}
    for _, destName := range filesToExtract {
@@ -47,29 +49,50 @@ func performPatch(apkPath string, ramdiskPath string) error {
    if err := run("adb", "push", ramdiskPath, "/data/local/tmp/ramdisk.img"); err != nil {
       return err
    }
+
    log.Print("=== Step 3: Executing CPIO Injection on Emulator ===")
    cpioArgs := []string{
-      "./magiskboot cpio ramdisk.cpio",              // KEEP
-      "'mkdir 0750 overlay.d'",                      // KEEP
-      "'mkdir 0750 overlay.d/sbin'",                 // KEEP
-      "'mkdir 0000 .backup'",                        // KEEP
-      "'mv init .backup/init'",                      // KEEP
-      "'add 0644 overlay.d/sbin/stub.apk stub.apk'", // KEEP
-      "'add 0750 init magiskinit'",                  // KEEP
-      "'add 0755 overlay.d/sbin/init-ld init-ld'",   // KEEP
+      "./magiskboot cpio ramdisk.cpio",
+      "'mkdir 0750 overlay.d'",
+      "'mkdir 0750 overlay.d/sbin'",
+      "'add 0750 init magiskinit'",
       "'add 0755 overlay.d/sbin/magisk magisk'",
+      "'add 0755 overlay.d/sbin/magisk64 magisk'",
+      "'add 0755 overlay.d/sbin/magisk32 magisk32'",
+      "'add 0755 overlay.d/sbin/init-ld init-ld'",
+      "'add 0644 overlay.d/sbin/stub.apk stub.apk'",
+      "'patch'",
+      "'backup ramdisk.cpio.orig'",
+      "'mkdir 000 .backup'",
+      "'add 000 .backup/.magisk config'",
    }
+
    if err := runAdbShell(
       "cd /data/local/tmp",
       "chmod +x magiskboot",
-      "./magiskboot decompress ramdisk.img ramdisk.cpio",
+      "echo KEEPVERITY=true > config",
+      "echo KEEPFORCEENCRYPT=true >> config",
+      "echo RECOVERYMODE=false >> config",
+      "export KEEPVERITY=true",
+      "export KEEPFORCEENCRYPT=true",
+      "export RECOVERYMODE=false",
+      // Decompress and capture stdout to find the correct format
+      "./magiskboot decompress ramdisk.img ramdisk.cpio > decomp.log",
+      // Check format quietly and assign the compression variable
+      "if grep -q 'Detected format: lz4_legacy' decomp.log",
+      "then COMP_FORMAT=lz4_legacy",
+      "else COMP_FORMAT=gzip",
+      "fi",
+      // Copy for the "backup" patch to succeed
+      "cp ramdisk.cpio ramdisk.cpio.orig",
       strings.Join(cpioArgs, " "),
-      "./magiskboot compress=lz4_legacy ramdisk.cpio magisk_patched.img",
+      // Compress using the detected native format
+      "./magiskboot compress=$COMP_FORMAT ramdisk.cpio magisk_patched.img",
    ); err != nil {
       return err
    }
-   log.Print("=== Step 4: Pulling Patched Image ===")
 
+   log.Print("=== Step 4: Pulling Patched Image ===")
    if err := run("adb", "pull", "/data/local/tmp/magisk_patched.img", "."); err != nil {
       return err
    }
@@ -119,7 +142,7 @@ func extractFromZip(zipPath string, filesToExtract map[string]string, destDir st
    }
 
    if foundCount != len(filesToExtract) {
-      return fmt.Errorf("could not find all required x86 files in the APK. Make sure you downloaded the full Magisk APK")
+      return fmt.Errorf("could not find all required files in the APK. Make sure you downloaded the full Magisk APK")
    }
    return nil
 }
