@@ -12,9 +12,15 @@ import (
 )
 
 var defaultExcludeTypes = []string{
+   "<missing>",
    "application/dash+xml",
+   "application/javascript",
+   "application/octet-stream",
+   "application/x-font-ttf",
    "application/x-javascript",
+   "font/ttf",
    "image/gif",
+   "image/jpeg",
    "image/png",
    "image/webp",
    "image/x-icon",
@@ -115,14 +121,15 @@ func processHAR(inputFile, excludeTypes string) error {
                mediaType = strings.ToLower(strings.Split(h.Value, ";")[0])
             }
 
-            mediaType = strings.TrimSpace(mediaType)
-            currentMediaType = mediaType
-
-            if excludeMap[mediaType] {
-               shouldExclude = true
-            }
+            currentMediaType = strings.TrimSpace(mediaType)
             break
          }
+      }
+
+      // Check the exclusion map AFTER the loop.
+      // This ensures that if it remained "<missing>", it can still be excluded.
+      if excludeMap[currentMediaType] {
+         shouldExclude = true
       }
 
       if !shouldExclude {
