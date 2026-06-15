@@ -18,75 +18,8 @@ import (
 
 const limit = 16
 
-func processCountryServers(filePath string, country string) error {
-   fileInfo, err := os.Stat(filePath)
-   if err != nil {
-      if os.IsNotExist(err) {
-         return fmt.Errorf("cache file does not exist. Please run the program with the -refresh flag first")
-      }
-      return fmt.Errorf("failed to access file %s: %w", filePath, err)
-   }
-
-   // If the file was modified 24 hours ago or more, prompt user to refresh
-   if time.Since(fileInfo.ModTime()) >= 24*time.Hour {
-      return fmt.Errorf("the file %s is 24 hours old or more. Please run with the -refresh flag", filePath)
-   }
-
-   jsonData, err := os.ReadFile(filePath)
-   if err != nil {
-      return fmt.Errorf("failed to read file %s: %w", filePath, err)
-   }
-
-   var servers []*Server
-   if err := json.Unmarshal(jsonData, &servers); err != nil {
-      return fmt.Errorf("failed to parse JSON: %w", err)
-   }
-
-   fastest := GetFastestServers(servers, country, limit)
-
-   if len(fastest) == 0 {
-      return nil
-   }
-
-   username, password, err := getCredentials()
-   if err != nil {
-      return fmt.Errorf("failed to retrieve credentials: %w", err)
-   }
-
-   // Print the results in strict key-value line output format to Stdout
-   for i, s := range fastest {
-      // Find the actual proxy hostname for this server if it exists
-      proxyHostname := s.Hostname // Default fallback
-      for _, tech := range s.Technologies {
-         for _, m := range tech.Metadata {
-            if m.Name == "proxy_hostname" && m.Value != "" {
-               proxyHostname = m.Value
-               break
-            }
-         }
-      }
-
-      // Using url.URL safely URL-encodes the password and formats the string
-      u := url.URL{
-         Scheme: "https",
-         User:   url.UserPassword(username, password),
-         Host:   fmt.Sprintf("%s:89", proxyHostname),
-      }
-
-      fmt.Printf("name: %s\n", s.Name)
-      fmt.Printf("load: %d\n", s.Load)
-      fmt.Printf("url: %s\n", u.String())
-
-      // Print a blank line between items, except after the very last one
-      if i < len(fastest)-1 {
-         fmt.Println()
-      }
-   }
-
-   return nil
-}
-
 func main() {
+   log.SetFlags(log.Ltime)
    refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN")
    country := flag.String("country", "", "Target country code (e.g., PL, DE, US)")
    flag.Parse()
@@ -259,4 +192,71 @@ func getCredentials() (string, string, error) {
    }
 
    return creds[0].Username, creds[0].Password, nil
+}
+func processCountryServers(filePath string, country string) error {
+   fileInfo, err := os.Stat(filePath)
+   if err != nil {
+      if os.IsNotExist(err) {
+         return fmt.Errorf("cache file does not exist. Please run the program with the -refresh flag first")
+      }
+      return fmt.Errorf("failed to access file %s: %w", filePath, err)
+   }
+
+   // If the file was modified 24 hours ago or more, prompt user to refresh
+   if time.Since(fileInfo.ModTime()) >= 24*time.Hour {
+      return fmt.Errorf("the file %s is 24 hours old or more. Please run with the -refresh flag", filePath)
+   }
+
+   jsonData, err := os.ReadFile(filePath)
+   if err != nil {
+      return fmt.Errorf("failed to read file %s: %w", filePath, err)
+   }
+
+   var servers []*Server
+   if err := json.Unmarshal(jsonData, &servers); err != nil {
+      return fmt.Errorf("failed to parse JSON: %w", err)
+   }
+
+   fastest := GetFastestServers(servers, country, limit)
+
+   if len(fastest) == 0 {
+      return nil
+   }
+
+   username, password, err := getCredentials()
+   if err != nil {
+      return fmt.Errorf("failed to retrieve credentials: %w", err)
+   }
+
+   // Print the results in strict key-value line output format to Stdout
+   for i, s := range fastest {
+      // Find the actual proxy hostname for this server if it exists
+      proxyHostname := s.Hostname // Default fallback
+      for _, tech := range s.Technologies {
+         for _, m := range tech.Metadata {
+            if m.Name == "proxy_hostname" && m.Value != "" {
+               proxyHostname = m.Value
+               break
+            }
+         }
+      }
+
+      // Using url.URL safely URL-encodes the password and formats the string
+      u := url.URL{
+         Scheme: "https",
+         User:   url.UserPassword(username, password),
+         Host:   fmt.Sprintf("%s:89", proxyHostname),
+      }
+
+      fmt.Printf("name: %s\n", s.Name)
+      fmt.Printf("load: %d\n", s.Load)
+      fmt.Printf("url: %s\n", u.String())
+
+      // Print a blank line between items, except after the very last one
+      if i < len(fastest)-1 {
+         fmt.Println()
+      }
+   }
+
+   return nil
 }
