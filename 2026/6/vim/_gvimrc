@@ -1,0 +1,123 @@
+" [2026-06-18] long lines 
+let &synmaxcol = 3000
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27colorcolumn%27
+let &colorcolumn = 82
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27softtabstop%27
+let &softtabstop = 3
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27fileformats%27
+let &fileformats = 'unix'
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27columns%27
+let &columns = 84
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27clipboard%27
+let &clipboard = 'unnamed'
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27background%27
+let &background = 'light'
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27wrapscan%27
+let &wrapscan = 0
+
+" [2026-06-18] Normal mode undo find highlight
+nmap H :nohlsearch<CR>
+
+" [2026-06-18] Insert mode Enter key
+imap <CR> <C-R>=Enter()<CR>
+
+" [2026-06-18] disable default auto indent
+filetype indent off
+
+" [2026-06-18] disable default tab stop
+filetype plugin off
+
+" [2026-06-18] Insert mode smart Home
+imap <Home> <C-O>:call Home()<CR>
+
+" [2026-06-18] Normal mode smart Home
+nmap <Home> :call Home()<CR>
+
+" [2026-06-18] Change directory for SWP files
+let &directory = $TMP
+
+" [2026-06-18] vimhelp.org/options.txt.html#%27encoding%27
+let &encoding = 'UTF-8'
+
+" [2026-06-18] use spaces
+let &expandtab = 1
+
+" [2026-06-18] Increase font size
+let &guifont = 'Consolas:h12'
+
+" [2026-06-18] Keep scroll, disable others
+let &guioptions = 'r'
+
+" [2026-06-18] Highlight matches
+let &hlsearch = 1
+
+" [2026-06-18] github.com/vim/vim/issues/9001
+let &ignorecase = 1
+
+" [2026-06-18] break on words when wrap is enabled
+let &linebreak = 1
+
+" [2026-06-18] Line numbers
+let &number = 1
+
+" [2026-06-18] visual mode
+let &shiftwidth = 3
+
+" [2026-06-18] all lower: loose, any upper: strict
+let &smartcase = 1
+
+" [2026-06-18] fix 'col' value at end of line
+let &virtualedit = 'onemore'
+
+" [2026-06-18] disable line wrap
+let &wrap = 0
+
+" [2026-06-18] fix highlighting
+let g:markdown_minlines = 999
+
+" [2026-06-18] Custom Tab function
+func Tab()
+   " vimhelp.org/options.txt.html#%27expandtab%27  
+   let &expandtab = 0
+   " vimhelp.org/options.txt.html#%27shiftwidth%27
+   let &shiftwidth = 8
+   " vimhelp.org/options.txt.html#%27softtabstop%27
+   let &softtabstop = 0
+endfunc
+
+" [2026-06-18] Custom Cursor function
+func Cursor()
+   if &expandtab
+      let nCursor = col('.') - 1
+   else
+      let nCursor = col('.') * &shiftwidth
+   endif
+   let nIndent = indent(line('.'))
+   return [nCursor, nIndent]
+endfunc
+
+" [2026-06-18] Custom Enter function
+func Enter()
+   let min_cur = min(Cursor())
+   return "\n" . repeat("\t", min_cur / &shiftwidth)
+endfunc
+
+" [2026-06-18] Custom Home function
+func Home()
+   let [cur, nIndent] = Cursor()
+   if cur > nIndent
+      normal ^
+   else
+      normal 0
+   endif
+endfunc
+
+" [2026-06-18] Set colorscheme
+colorscheme PaperColor
