@@ -22,7 +22,6 @@ var targets = []string{
    "MCDONALD'S",
    "SCHLOTZSKYS",
    "SPRING CREEK",
-   "STARBUCKS",
    "WENDY",
    "WHATABURGER",
 }

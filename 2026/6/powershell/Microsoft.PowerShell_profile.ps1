@@ -1,6 +1,10 @@
 $path = @()
 #################################################################################
 
+# 2026-06-17
+$path += 'C:\Users\Steven\AppData\Local\Programs\Python\Python312'
+$path += 'C:\Users\Steven\AppData\Local\Programs\Python\Python312\Scripts'
+
 # 2026-06-14
 # go.dev/doc/go1.13
 $env:GOPROXY = 'direct'
@@ -10,8 +14,6 @@ $env:GOSUMDB = 'off'
 $path += 'D:\vim'
 
 # 2026-06-08
-$path += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314'
-$path += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314\Scripts'
 $path += 'C:\Users\Steven\go\bin'
 $path += 'D:\MinGit\mingw64\bin'
 $path += 'D:\bin'
