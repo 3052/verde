@@ -1,6 +1,8 @@
 # account sharing
 
-## https://shellix.xyz
+## https://sharesub.com
+
+works
 
 ## g2g.com
 
@@ -40,12 +42,6 @@ https://g2g.com/categories/crave-accounts
 29. purchased accounts
    - accounts #1
 
-DID NOT WORK
-
-## https://sharesub.com
-
-works
-
 ## z2u.com
 
 https://z2u.com/crave/accounts-5-18379
@@ -79,5 +75,3 @@ https://z2u.com/crave/accounts-5-18379
 27. street
 28. ZIP
 29. next step
-
-did not work
