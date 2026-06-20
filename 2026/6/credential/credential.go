@@ -80,7 +80,7 @@ func validateData(credentials []map[string]string) error {
          hostStr = "unknown/missing host"
       }
 
-      // --- Rule 3: All objects must have a date, and it cannot be older than 1 year ---
+      // --- Rule 1: All objects must have a date, and it cannot be older than 1 year ---
       dateStr, dateExists := cred["date"]
       if !dateExists {
          return fmt.Errorf("validation error: object at index %d (host: %s) is missing 'date' key", i, hostStr)
@@ -95,20 +95,21 @@ func validateData(credentials []map[string]string) error {
          return fmt.Errorf("validation error: object at index %d (host: %s) has a date '%s' older than 1 year", i, hostStr, dateStr)
       }
 
-      // --- Rule 1: If object has "password", it must have "trial" ---
+      // --- Rule 2: Passwords must be unique UNLESS unique="false" ---
       passVal, passExists := cred["password"]
       if passExists {
-         if _, trialExists := cred["trial"]; !trialExists {
-            return fmt.Errorf("validation error: object at index %d (host: %s) has a 'password' but is missing the 'trial' key", i, hostStr)
+         uniqueVal, uniqueExists := cred["unique"]
+         
+         // Secure by Default: We assume uniqueness is REQUIRED.
+         // It is only disabled if the key explicitly exists and equals "false".
+         requireUnique := true
+         if uniqueExists && strings.ToLower(uniqueVal) == "false" {
+            requireUnique = false
          }
-      }
 
-      // --- Rule 2: For trial=false objects, password cannot match any other objects ---
-      if trialVal, trialExists := cred["trial"]; trialExists {
-         // Because values are exclusively strings, we can check for "false" directly
-         if trialVal == "false" && passExists {
+         if requireUnique {
             if passCounts[passVal] > 1 {
-               return fmt.Errorf("validation error: trial=false object at index %d (host: %s) shares its password with another object", i, hostStr)
+               return fmt.Errorf("validation error: object at index %d (host: %s) shares its password with another object, but requires a unique password", i, hostStr)
             }
          }
       }
