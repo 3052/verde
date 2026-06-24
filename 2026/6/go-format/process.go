@@ -2,7 +2,6 @@ package main
 
 import (
    "bytes"
-   "flag"
    "fmt"
    "go/ast"
    "go/doc"
@@ -13,44 +12,30 @@ import (
    "sort"
 )
 
-func main() {
-   writeFlag := flag.Bool("w", false, "Write result to the source file instead of stdout")
-   flag.Parse()
-
-   if flag.NArg() < 1 {
-      fmt.Println("Usage: godocorder [-w] <file.go>")
-      os.Exit(1)
-   }
-   filename := flag.Arg(0)
-
+func processFile(filename string, writeResult bool) error {
    // 1. Read file and format it first.
    // Formatting first ensures exactly one declaration per line,
    // making our chunking math highly reliable.
    originalSrc, err := os.ReadFile(filename)
    if err != nil {
-      fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
-      os.Exit(1)
+      return fmt.Errorf("error reading file: %w", err)
    }
    src, err := format.Source(originalSrc)
    if err != nil {
-      fmt.Fprintf(os.Stderr, "Source has syntax errors: %v\n", err)
-      os.Exit(1)
+      return fmt.Errorf("source has syntax errors: %w", err)
    }
 
    // 2. Parse the AST
    fset := token.NewFileSet()
    f, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
    if err != nil {
-      fmt.Fprintf(os.Stderr, "Error parsing file: %v\n", err)
-      os.Exit(1)
+      return fmt.Errorf("error parsing file: %w", err)
    }
 
    // 3. Generate go/doc package to find official ordering.
-   // We use doc.NewFromFiles to avoid the deprecated go/ast.Package.
    dpkg, err := doc.NewFromFiles(fset, []*ast.File{f}, "", doc.AllDecls|doc.PreserveAST)
    if err != nil {
-      fmt.Fprintf(os.Stderr, "Error generating doc package: %v\n", err)
-      os.Exit(1)
+      return fmt.Errorf("error generating doc package: %w", err)
    }
 
    // 4. Calculate the new rank for each declaration
@@ -192,20 +177,24 @@ func main() {
    // 9. Format one last time to ensure perfect spacing
    finalOut, err := format.Source(buf.Bytes())
    if err != nil {
-      fmt.Fprintf(os.Stderr, "Error formatting reassembled source: %v\n", err)
-      os.Exit(1)
+      return fmt.Errorf("error formatting reassembled source: %w", err)
    }
 
+   // ---------------------------------------------------------
+   // Replace all tabs output by gofmt with 3 spaces
+   // ---------------------------------------------------------
+   finalOut = bytes.ReplaceAll(finalOut, []byte("\t"), []byte("   "))
+
    // 10. Write output
-   if *writeFlag {
+   if writeResult {
       if err := os.WriteFile(filename, finalOut, 0644); err != nil {
-         fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
-         os.Exit(1)
+         return fmt.Errorf("error writing file: %w", err)
       }
-      fmt.Printf("Reordered %s successfully.\n", filename)
+      fmt.Printf("Reordered and formatted %s successfully.\n", filename)
    } else {
       os.Stdout.Write(finalOut)
    }
+   return nil
 }
 
 // advanceToNewline advances an offset to the character immediately following the next \n
