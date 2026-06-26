@@ -10,20 +10,19 @@ import (
 )
 
 func main() {
-   // Keep CLI output clean by removing timestamp prefixes from standard log output
-   log.SetFlags(0)
+   log.SetFlags(log.Ltime)
 
    writeFlag := flag.Bool("w", false, "Write result to the source file instead of stdout")
+   dirFlag := flag.String("dir", "", "Target directory to process")
    flag.Parse()
 
-   if flag.NArg() < 1 {
+   if *dirFlag == "" {
+      fmt.Println("Error: -dir flag is required")
       flag.Usage()
       os.Exit(1)
    }
 
-   targetDir := flag.Arg(0)
-
-   if err := processDirectory(targetDir, *writeFlag); err != nil {
+   if err := processDirectory(*dirFlag, *writeFlag); err != nil {
       log.Fatal(err)
    }
 }
