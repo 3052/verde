@@ -12,6 +12,17 @@ import (
    "sort"
 )
 
+// advanceToNewline advances an offset to the character immediately following the next \n
+func advanceToNewline(src []byte, offset int) int {
+   for offset < len(src) && src[offset] != '\n' {
+      offset++
+   }
+   if offset < len(src) && src[offset] == '\n' {
+      offset++
+   }
+   return offset
+}
+
 func processFile(filename string, writeResult bool) error {
    // 1. Read file and format it first.
    // Formatting first ensures exactly one declaration per line,
@@ -92,10 +103,55 @@ func processFile(filename string, writeResult bool) error {
       }
    }
 
-   // Cat 1: Unranked items (init(), blank vars) right below imports
-   for i := range f.Decls {
+   // Fallback: Assign unranked items based on their AST node type.
+   // (e.g. go/doc ignores methods if their parent type isn't in the same file)
+   for i, d := range f.Decls {
       if _, exists := rankMap[i]; !exists {
-         rankMap[i] = order{1, rankCounter}
+         cat := 1 // Default fallback for init() or special declarations
+
+         switch decl := d.(type) {
+         case *ast.GenDecl:
+            // Check if it's a blank identifier var (e.g. var _ Interface = (*Struct)(nil))
+            isBlank := false
+            if decl.Tok == token.VAR {
+               isBlank = true
+               for _, spec := range decl.Specs {
+                  if vs, ok := spec.(*ast.ValueSpec); ok {
+                     for _, name := range vs.Names {
+                        if name.Name != "_" {
+                           isBlank = false
+                           break
+                        }
+                     }
+                  } else {
+                     isBlank = false
+                  }
+               }
+            }
+
+            if isBlank {
+               cat = 1 // Keep blank interface assertions near the top
+            } else {
+               switch decl.Tok {
+               case token.CONST:
+                  cat = 2
+               case token.VAR:
+                  cat = 3
+               case token.TYPE:
+                  cat = 5
+               }
+            }
+         case *ast.FuncDecl:
+            if decl.Name.Name == "init" {
+               cat = 1
+            } else if decl.Recv != nil {
+               cat = 5 // Orphaned method (receiver type is in another file)
+            } else {
+               cat = 4 // Orphaned top-level function
+            }
+         }
+
+         rankMap[i] = order{cat, rankCounter}
          rankCounter++
       }
    }
@@ -195,15 +251,4 @@ func processFile(filename string, writeResult bool) error {
       os.Stdout.Write(finalOut)
    }
    return nil
-}
-
-// advanceToNewline advances an offset to the character immediately following the next \n
-func advanceToNewline(src []byte, offset int) int {
-   for offset < len(src) && src[offset] != '\n' {
-      offset++
-   }
-   if offset < len(src) && src[offset] == '\n' {
-      offset++
-   }
-   return offset
 }
