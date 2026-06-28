@@ -13,6 +13,63 @@ import (
    "strings"
 )
 
+func extractFromZip(zipPath string, filesToExtract map[string]string, destDir string) error {
+   r, err := zip.OpenReader(zipPath)
+   if err != nil {
+      return err
+   }
+   defer r.Close()
+
+   foundCount := 0
+   for _, f := range r.File {
+      if destName, wantsFile := filesToExtract[f.Name]; wantsFile {
+         if err := extractSingleFile(f, filepath.Join(destDir, destName)); err != nil {
+            return err
+         }
+         foundCount++
+      }
+   }
+
+   if foundCount != len(filesToExtract) {
+      return fmt.Errorf("could not find all required files in the APK. Make sure you downloaded the full Magisk APK")
+   }
+   return nil
+}
+
+func extractSingleFile(f *zip.File, dest string) error {
+   rc, err := f.Open()
+   if err != nil {
+      return err
+   }
+   defer rc.Close()
+
+   destFile, err := os.Create(dest)
+   if err != nil {
+      return err
+   }
+   defer destFile.Close()
+
+   _, err = io.Copy(destFile, rc)
+   return err
+}
+
+func main() {
+   log.SetFlags(log.Ltime)
+   apkPath := flag.String("apk", "", "Path to the Magisk APK file (e.g., Magisk-v30.7.apk)")
+   ramdiskPath := flag.String("img", "", "Path to the unpatched ramdisk.img file")
+
+   flag.Parse()
+
+   if *apkPath == "" || *ramdiskPath == "" {
+      flag.PrintDefaults()
+      log.Fatal("Error: Both -apk and -img flags are required.")
+   }
+
+   if err := performPatch(*apkPath, *ramdiskPath); err != nil {
+      log.Fatalf("Patching failed: %v", err)
+   }
+}
+
 func performPatch(apkPath string, ramdiskPath string) error {
    patchDir := "Patch_Temp"
 
@@ -101,6 +158,14 @@ func performPatch(apkPath string, ramdiskPath string) error {
    return nil
 }
 
+func run(name string, arg ...string) error {
+   cmd := exec.Command(name, arg...)
+   log.Printf("Executing: %v", cmd.Args)
+   cmd.Stdout = os.Stdout
+   cmd.Stderr = os.Stderr
+   return cmd.Run()
+}
+
 func runAdbShell(scripts ...string) error {
    scripts = slices.Insert(scripts, 0, "set -e")
 
@@ -114,69 +179,4 @@ func runAdbShell(scripts ...string) error {
    cmd.Stdout = os.Stdout
    cmd.Stderr = os.Stderr
    return cmd.Run()
-}
-
-func run(name string, arg ...string) error {
-   cmd := exec.Command(name, arg...)
-   log.Printf("Executing: %v", cmd.Args)
-   cmd.Stdout = os.Stdout
-   cmd.Stderr = os.Stderr
-   return cmd.Run()
-}
-
-func extractFromZip(zipPath string, filesToExtract map[string]string, destDir string) error {
-   r, err := zip.OpenReader(zipPath)
-   if err != nil {
-      return err
-   }
-   defer r.Close()
-
-   foundCount := 0
-   for _, f := range r.File {
-      if destName, wantsFile := filesToExtract[f.Name]; wantsFile {
-         if err := extractSingleFile(f, filepath.Join(destDir, destName)); err != nil {
-            return err
-         }
-         foundCount++
-      }
-   }
-
-   if foundCount != len(filesToExtract) {
-      return fmt.Errorf("could not find all required files in the APK. Make sure you downloaded the full Magisk APK")
-   }
-   return nil
-}
-
-func extractSingleFile(f *zip.File, dest string) error {
-   rc, err := f.Open()
-   if err != nil {
-      return err
-   }
-   defer rc.Close()
-
-   destFile, err := os.Create(dest)
-   if err != nil {
-      return err
-   }
-   defer destFile.Close()
-
-   _, err = io.Copy(destFile, rc)
-   return err
-}
-
-func main() {
-   log.SetFlags(log.Ltime)
-   apkPath := flag.String("apk", "", "Path to the Magisk APK file (e.g., Magisk-v30.7.apk)")
-   ramdiskPath := flag.String("img", "", "Path to the unpatched ramdisk.img file")
-
-   flag.Parse()
-
-   if *apkPath == "" || *ramdiskPath == "" {
-      flag.PrintDefaults()
-      log.Fatal("Error: Both -apk and -img flags are required.")
-   }
-
-   if err := performPatch(*apkPath, *ramdiskPath); err != nil {
-      log.Fatalf("Patching failed: %v", err)
-   }
 }

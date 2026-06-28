@@ -12,20 +12,30 @@ import (
    "time"
 )
 
-func (i *InnerTube) do() error {
-   play, err := i.Player()
-   if err != nil {
-      return err
+const (
+   web         = "WEB"
+   web_version = "2.20231219.04.00"
+)
+
+const user_agent = "com.google.android.youtube/"
+
+func format_integer(number int) string {
+   number_string := strconv.Itoa(number)
+   lengthOfString := len(number_string)
+   if lengthOfString <= 3 {
+      return number_string
    }
-   views := views_per_year(
-      play.VideoDetails.ViewCount,
-      play.Microformat.PlayerMicroformatRenderer.PublishDate,
-   )
-   const limit = 10_000_000
-   log.Println("video ID", play.VideoDetails.VideoId)
-   log.Println("limit", format_integer(limit))
-   log.Println("views", format_integer(views))
-   return nil
+   digits := lengthOfString % 3
+   if digits == 0 {
+      digits = 3
+   }
+   var data strings.Builder
+   data.WriteString(number_string[:digits])
+   for i := digits; i < lengthOfString; i += 3 {
+      data.WriteByte(',')
+      data.WriteString(number_string[i : i+3])
+   }
+   return data.String()
 }
 
 func main() {
@@ -56,25 +66,6 @@ func views_per_year(views int, publish date) int {
    return int(float64(views) / years)
 }
 
-func format_integer(number int) string {
-   number_string := strconv.Itoa(number)
-   lengthOfString := len(number_string)
-   if lengthOfString <= 3 {
-      return number_string
-   }
-   digits := lengthOfString % 3
-   if digits == 0 {
-      digits = 3
-   }
-   var data strings.Builder
-   data.WriteString(number_string[:digits])
-   for i := digits; i < lengthOfString; i += 3 {
-      data.WriteByte(',')
-      data.WriteString(number_string[i : i+3])
-   }
-   return data.String()
-}
-
 // need `osVersion` this to get the correct:
 // This video requires payment to watch
 // instead of the invalid:
@@ -93,13 +84,6 @@ type InnerTube struct {
    RacyCheckOk bool   `json:"racyCheckOk,omitempty"`
    VideoId     string `json:"videoId"`
 }
-
-const user_agent = "com.google.android.youtube/"
-
-const (
-   web         = "WEB"
-   web_version = "2.20231219.04.00"
-)
 
 func (i *InnerTube) Player() (*Player, error) {
    i.Context.Client.AndroidSdkVersion = 32
@@ -128,6 +112,22 @@ func (i *InnerTube) Player() (*Player, error) {
       return nil, err
    }
    return play, nil
+}
+
+func (i *InnerTube) do() error {
+   play, err := i.Player()
+   if err != nil {
+      return err
+   }
+   views := views_per_year(
+      play.VideoDetails.ViewCount,
+      play.Microformat.PlayerMicroformatRenderer.PublishDate,
+   )
+   const limit = 10_000_000
+   log.Println("video ID", play.VideoDetails.VideoId)
+   log.Println("limit", format_integer(limit))
+   log.Println("views", format_integer(views))
+   return nil
 }
 
 type Player struct {

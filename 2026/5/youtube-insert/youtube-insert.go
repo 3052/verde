@@ -52,154 +52,6 @@ var yt_imgs = []string{
    33: "3.jpg",
 }
 
-func get_image(video_id string) (string, error) {
-   for index, name := range yt_imgs {
-      var address string
-      if strings.HasSuffix(name, ".webp") {
-         address = "http://i.ytimg.com/vi_webp/" + video_id + "/" + name
-      } else {
-         address = "http://i.ytimg.com/vi/" + video_id + "/" + name
-      }
-      status, err := head(address)
-      if err != nil {
-         return "", err
-      }
-      if status == http.StatusOK {
-         if index == 0 {
-            return "", nil
-         }
-         return name, nil
-      }
-   }
-   return "", nil
-}
-
-func fetch_player(video_id string) (*player, error) {
-   data, err := json.Marshal(map[string]any{
-      "contentCheckOk": true,
-      "context": map[string]any{
-         "client": map[string]string{
-            "clientName":    "WEB",
-            "clientVersion": "2.20231219.04.00",
-         },
-      },
-      "racyCheckOk": true,
-      "videoId":     video_id,
-   })
-   if err != nil {
-      return nil, err
-   }
-   req, err := http.NewRequest(
-      "POST", "https://www.youtube.com/youtubei/v1/player",
-      bytes.NewReader(data),
-   )
-   if err != nil {
-      return nil, err
-   }
-   req.Header.Set("x-goog-visitor-id", "CgtJeU1qSXlNakl5TQ")
-   resp, err := http.DefaultClient.Do(req)
-   if err != nil {
-      return nil, err
-   }
-   defer resp.Body.Close()
-   if resp.StatusCode != http.StatusOK {
-      return nil, errors.New(resp.Status)
-   }
-   result := &player{}
-   err = json.NewDecoder(resp.Body).Decode(result)
-   if err != nil {
-      return nil, err
-   }
-   return result, nil
-}
-
-func head(address string) (int, error) {
-   fmt.Println(address)
-   resp, err := http.Head(address)
-   if err != nil {
-      return 0, err
-   }
-   defer resp.Body.Close()
-   return resp.StatusCode, nil
-}
-
-type player struct {
-   Microformat struct {
-      PlayerMicroformatRenderer struct {
-         PublishDate time.Time
-      }
-   }
-   PlayabilityStatus struct {
-      Status string
-      Reason string
-   }
-   VideoDetails struct {
-      Author           string
-      LengthSeconds    int64 `json:",string"`
-      ShortDescription string
-      Title            string
-      VideoId          string
-      ViewCount        int64 `json:",string"`
-   }
-}
-
-func write_file(name string, data []byte) error {
-   log.Println("WriteFile", name)
-   return os.WriteFile(name, data, os.ModePerm)
-}
-
-func read_songs(name string) ([]map[string]any, error) {
-   data, err := os.ReadFile(name)
-   if err != nil {
-      return nil, err
-   }
-   var songs []map[string]any
-   err = json.Unmarshal(data, &songs)
-   if err != nil {
-      return nil, err
-   }
-   return songs, nil
-}
-
-// Helper to handle the repeating logic of formatting and writing JSON
-func write_songs(name string, songs []map[string]any) error {
-   var buf bytes.Buffer
-   enc := json.NewEncoder(&buf)
-   enc.SetEscapeHTML(false)
-   enc.SetIndent("", " ")
-   err := enc.Encode(songs)
-   if err != nil {
-      return err
-   }
-   return write_file(name, buf.Bytes())
-}
-
-func main() {
-   log.SetFlags(log.Ltime)
-   name := flag.String("n", "umber.json", "name")
-   video_url := flag.String("u", "", "video URL")
-   flag.Parse()
-
-   if *video_url != "" {
-      u, err := url.Parse(*video_url)
-      if err != nil {
-         log.Fatal("Invalid URL:", err)
-      }
-
-      video_id := u.Query().Get("v")
-      if video_id == "" {
-         log.Fatal("Could not extract 'v' parameter from URL")
-      }
-
-      err = do_video_id(video_id, *name)
-      if err != nil {
-         log.Fatal(err)
-      }
-   } else {
-      flag.Usage()
-   }
-}
-
 func do_video_id(video_id, name string) error {
    raw_songs, err := read_songs(name)
    if err != nil {
@@ -262,4 +114,152 @@ func do_video_id(video_id, name string) error {
 
    // Save the newly cleaned and updated list
    return write_songs(name, songs)
+}
+
+func get_image(video_id string) (string, error) {
+   for index, name := range yt_imgs {
+      var address string
+      if strings.HasSuffix(name, ".webp") {
+         address = "http://i.ytimg.com/vi_webp/" + video_id + "/" + name
+      } else {
+         address = "http://i.ytimg.com/vi/" + video_id + "/" + name
+      }
+      status, err := head(address)
+      if err != nil {
+         return "", err
+      }
+      if status == http.StatusOK {
+         if index == 0 {
+            return "", nil
+         }
+         return name, nil
+      }
+   }
+   return "", nil
+}
+
+func head(address string) (int, error) {
+   fmt.Println(address)
+   resp, err := http.Head(address)
+   if err != nil {
+      return 0, err
+   }
+   defer resp.Body.Close()
+   return resp.StatusCode, nil
+}
+
+func main() {
+   log.SetFlags(log.Ltime)
+   name := flag.String("n", "umber.json", "name")
+   video_url := flag.String("u", "", "video URL")
+   flag.Parse()
+
+   if *video_url != "" {
+      u, err := url.Parse(*video_url)
+      if err != nil {
+         log.Fatal("Invalid URL:", err)
+      }
+
+      video_id := u.Query().Get("v")
+      if video_id == "" {
+         log.Fatal("Could not extract 'v' parameter from URL")
+      }
+
+      err = do_video_id(video_id, *name)
+      if err != nil {
+         log.Fatal(err)
+      }
+   } else {
+      flag.Usage()
+   }
+}
+
+func read_songs(name string) ([]map[string]any, error) {
+   data, err := os.ReadFile(name)
+   if err != nil {
+      return nil, err
+   }
+   var songs []map[string]any
+   err = json.Unmarshal(data, &songs)
+   if err != nil {
+      return nil, err
+   }
+   return songs, nil
+}
+
+func write_file(name string, data []byte) error {
+   log.Println("WriteFile", name)
+   return os.WriteFile(name, data, os.ModePerm)
+}
+
+// Helper to handle the repeating logic of formatting and writing JSON
+func write_songs(name string, songs []map[string]any) error {
+   var buf bytes.Buffer
+   enc := json.NewEncoder(&buf)
+   enc.SetEscapeHTML(false)
+   enc.SetIndent("", " ")
+   err := enc.Encode(songs)
+   if err != nil {
+      return err
+   }
+   return write_file(name, buf.Bytes())
+}
+
+type player struct {
+   Microformat struct {
+      PlayerMicroformatRenderer struct {
+         PublishDate time.Time
+      }
+   }
+   PlayabilityStatus struct {
+      Status string
+      Reason string
+   }
+   VideoDetails struct {
+      Author           string
+      LengthSeconds    int64 `json:",string"`
+      ShortDescription string
+      Title            string
+      VideoId          string
+      ViewCount        int64 `json:",string"`
+   }
+}
+
+func fetch_player(video_id string) (*player, error) {
+   data, err := json.Marshal(map[string]any{
+      "contentCheckOk": true,
+      "context": map[string]any{
+         "client": map[string]string{
+            "clientName":    "WEB",
+            "clientVersion": "2.20231219.04.00",
+         },
+      },
+      "racyCheckOk": true,
+      "videoId":     video_id,
+   })
+   if err != nil {
+      return nil, err
+   }
+   req, err := http.NewRequest(
+      "POST", "https://www.youtube.com/youtubei/v1/player",
+      bytes.NewReader(data),
+   )
+   if err != nil {
+      return nil, err
+   }
+   req.Header.Set("x-goog-visitor-id", "CgtJeU1qSXlNakl5TQ")
+   resp, err := http.DefaultClient.Do(req)
+   if err != nil {
+      return nil, err
+   }
+   defer resp.Body.Close()
+   if resp.StatusCode != http.StatusOK {
+      return nil, errors.New(resp.Status)
+   }
+   result := &player{}
+   err = json.NewDecoder(resp.Body).Decode(result)
+   if err != nil {
+      return nil, err
+   }
+   return result, nil
 }

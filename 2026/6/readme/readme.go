@@ -8,24 +8,6 @@ import (
    "path/filepath"
 )
 
-func main() {
-   n := flag.String("n", "", "Required: Name to include in the path (e.g., 'amazon')")
-   y := flag.String("y", "", "Required: Year (e.g., '2026')")
-   m := flag.String("m", "", "Optional: Month and day (e.g., '6-4')")
-
-   flag.Parse()
-
-   // Enforce the required flags
-   if *n == "" || *y == "" {
-      flag.Usage()
-      log.Fatal("Error: both -n and -y flags are required.")
-   }
-
-   if err := createStructure(*n, *y, *m); err != nil {
-      log.Fatal("Error:", err)
-   }
-}
-
 // createStructure handles the generation of the directories and the empty readme file.
 func createStructure(name, year, monthDay string) error {
    var dirPath string
@@ -56,4 +38,22 @@ func createStructure(name, year, monthDay string) error {
 
    log.Println("Successfully created:", filepath.ToSlash(filePath))
    return nil
+}
+
+func main() {
+   n := flag.String("n", "", "Required: Name to include in the path (e.g., 'amazon')")
+   y := flag.String("y", "", "Required: Year (e.g., '2026')")
+   m := flag.String("m", "", "Optional: Month and day (e.g., '6-4')")
+
+   flag.Parse()
+
+   // Enforce the required flags
+   if *n == "" || *y == "" {
+      flag.Usage()
+      log.Fatal("Error: both -n and -y flags are required.")
+   }
+
+   if err := createStructure(*n, *y, *m); err != nil {
+      log.Fatal("Error:", err)
+   }
 }

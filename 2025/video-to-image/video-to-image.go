@@ -8,6 +8,21 @@ import (
    "os/exec"
 )
 
+func main() {
+   err := new(command).run()
+   if err != nil {
+      log.Fatal(err)
+   }
+}
+
+type command struct {
+   all      bool
+   duration string
+   ext      string
+   input    string
+   start    string
+}
+
 func (c *command) do_input() error {
    arg := []string{"-hide_banner"}
    if c.start != "" {
@@ -26,21 +41,6 @@ func (c *command) do_input() error {
    ffmpeg.Stderr = os.Stderr
    log.Print(ffmpeg)
    return ffmpeg.Run()
-}
-
-type command struct {
-   all      bool
-   duration string
-   ext      string
-   input    string
-   start    string
-}
-
-func main() {
-   err := new(command).run()
-   if err != nil {
-      log.Fatal(err)
-   }
 }
 
 func (c *command) run() error {

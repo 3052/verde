@@ -18,17 +18,6 @@ const (
    to   = "/system/etc/security/cacerts"
 )
 
-// outputs the MD5 "hash" of the certificate subject name
-func subject_hash(data []byte) ([]byte, error) {
-   block, _ := pem.Decode(data)
-   cert, err := x509.ParseCertificate(block.Bytes)
-   if err != nil {
-      return nil, err
-   }
-   sum := md5.Sum(cert.RawSubject)
-   return []byte{sum[3], sum[2], sum[1], sum[0]}, nil
-}
-
 func main() {
    var info bool
    flag.BoolVar(&info, "i", false, "information")
@@ -71,4 +60,15 @@ func main() {
          }
       }
    }
+}
+
+// outputs the MD5 "hash" of the certificate subject name
+func subject_hash(data []byte) ([]byte, error) {
+   block, _ := pem.Decode(data)
+   cert, err := x509.ParseCertificate(block.Bytes)
+   if err != nil {
+      return nil, err
+   }
+   sum := md5.Sum(cert.RawSubject)
+   return []byte{sum[3], sum[2], sum[1], sum[0]}, nil
 }

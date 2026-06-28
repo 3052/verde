@@ -15,28 +15,6 @@ import (
    "text/template"
 )
 
-type QueryParam struct {
-   Key   string
-   Value string
-}
-
-type Cookie struct {
-   Name  string
-   Value string
-}
-
-type RequestData struct {
-   Method    string
-   URLScheme string
-   URLHost   string
-   URLPath   string
-   URLQuery  []QueryParam
-   Headers   map[string]string
-   Cookies   []Cookie
-   Body      string
-   HasBody   bool
-}
-
 const goCodeTemplate = `package main
 
 import (
@@ -85,6 +63,25 @@ func main() {
 
 `
 
+func generateGoFile(data *RequestData, outputPath string) error {
+   tmpl, err := template.New("").Parse(goCodeTemplate)
+   if err != nil {
+      return err
+   }
+
+   var buf bytes.Buffer
+   if err = tmpl.Execute(&buf, data); err != nil {
+      return err
+   }
+
+   formattedCode, err := format.Source(buf.Bytes())
+   if err != nil {
+      formattedCode = buf.Bytes()
+   }
+
+   return os.WriteFile(outputPath, formattedCode, 0644)
+}
+
 func main() {
    inputFile := flag.String("in", "", "Input HTTP request text file (required)")
    indentJSON := flag.Bool("indent", false, "Pretty-print/indent the JSON body")
@@ -108,6 +105,28 @@ func main() {
 
    // Added proper logging to confirm the file was written
    log.Printf("Success: Generated Go code written to %s\n", outputFile)
+}
+
+type Cookie struct {
+   Name  string
+   Value string
+}
+
+type QueryParam struct {
+   Key   string
+   Value string
+}
+
+type RequestData struct {
+   Method    string
+   URLScheme string
+   URLHost   string
+   URLPath   string
+   URLQuery  []QueryParam
+   Headers   map[string]string
+   Cookies   []Cookie
+   Body      string
+   HasBody   bool
 }
 
 func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
@@ -232,23 +251,4 @@ func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
    }
 
    return reqData, nil
-}
-
-func generateGoFile(data *RequestData, outputPath string) error {
-   tmpl, err := template.New("").Parse(goCodeTemplate)
-   if err != nil {
-      return err
-   }
-
-   var buf bytes.Buffer
-   if err = tmpl.Execute(&buf, data); err != nil {
-      return err
-   }
-
-   formattedCode, err := format.Source(buf.Bytes())
-   if err != nil {
-      formattedCode = buf.Bytes()
-   }
-
-   return os.WriteFile(outputPath, formattedCode, 0644)
 }

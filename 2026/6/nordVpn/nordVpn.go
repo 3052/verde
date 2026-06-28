@@ -18,6 +18,29 @@ import (
 
 const limit = 16
 
+func getCredentials() (string, string, error) {
+   cmd := exec.Command("credential", "-j=api.nordvpn.com")
+   output, err := cmd.Output()
+   if err != nil {
+      return "", "", fmt.Errorf("failed to run credential command: %w", err)
+   }
+
+   var creds []struct {
+      Username string
+      Password string
+   }
+
+   if err := json.Unmarshal(output, &creds); err != nil {
+      return "", "", fmt.Errorf("failed to parse credentials JSON: %w", err)
+   }
+
+   if len(creds) == 0 {
+      return "", "", fmt.Errorf("no credentials found in command output")
+   }
+
+   return creds[0].Username, creds[0].Password, nil
+}
+
 func main() {
    log.SetFlags(log.Ltime)
    refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN")
@@ -50,148 +73,6 @@ func main() {
    fmt.Fprintf(os.Stderr, "Error: You must provide either -refresh or -country.\n\n")
    flag.Usage()
    os.Exit(1)
-}
-
-// Define the necessary structs to parse the JSON data
-type Country struct {
-   Code string `json:"code"`
-}
-
-type Location struct {
-   Country Country `json:"country"`
-}
-
-type Group struct {
-   Identifier string `json:"identifier"`
-}
-
-type Metadata struct {
-   Name  string `json:"name"`
-   Value string `json:"value"`
-}
-
-type Technology struct {
-   Identifier string     `json:"identifier"`
-   Metadata   []Metadata `json:"metadata"`
-}
-
-type Server struct {
-   Name         string       `json:"name"`
-   Hostname     string       `json:"hostname"`
-   Load         int          `json:"load"`
-   Locations    []Location   `json:"locations"`
-   Groups       []Group      `json:"groups"`
-   Technologies []Technology `json:"technologies"`
-}
-
-// GetFastestServers filters by exact country code, excludes known bad groups, sorts by load, and limits results.
-func GetFastestServers(servers []*Server, countryCode string, limit int) []*Server {
-   var filtered []*Server
-
-   // Define server groups that do not work with standard proxy auth on port 89
-   badGroups := map[string]bool{
-      "legacy_dedicated_ip":       true, // Dedicated IPs
-      "legacy_double_vpn":         true, // Double VPN
-      "legacy_obfuscated_servers": true, // Obfuscated servers
-   }
-
-   for _, s := range servers {
-      // 1. EXACT match for country code
-      isTargetCountry := false
-      for _, loc := range s.Locations {
-         if loc.Country.Code == countryCode {
-            isTargetCountry = true
-            break
-         }
-      }
-
-      // 2. Exclude known bad options
-      isBadServer := false
-      for _, group := range s.Groups {
-         if badGroups[group.Identifier] {
-            isBadServer = true
-            break
-         }
-      }
-
-      // Only append if it's the target country AND not a known bad server type
-      if isTargetCountry && !isBadServer {
-         filtered = append(filtered, s)
-      }
-   }
-
-   // 3. Sort the filtered pointers by Load
-   slices.SortFunc(filtered, func(a, b *Server) int {
-      return cmp.Compare(a.Load, b.Load)
-   })
-
-   // 4. Limit the results
-   if len(filtered) > limit {
-      return filtered[:limit]
-   }
-   return filtered
-}
-
-func refreshFile(filePath string) error {
-   u := url.URL{
-      Scheme:   "https",
-      Host:     "api.nordvpn.com",
-      Path:     "/v1/servers",
-      RawQuery: "limit=0",
-   }
-
-   // Print info to Stderr so Stdout remains clean for scripting
-   fmt.Fprintf(os.Stderr, "Downloading latest server list from %s...\n", u.String())
-   resp, err := http.Get(u.String())
-   if err != nil {
-      return fmt.Errorf("failed to fetch data: %w", err)
-   }
-   defer resp.Body.Close()
-
-   if resp.StatusCode != http.StatusOK {
-      return fmt.Errorf("unexpected HTTP status: %s", resp.Status)
-   }
-
-   // Ensure the cache directory exists before writing
-   if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-      return fmt.Errorf("failed to create directory: %w", err)
-   }
-
-   out, err := os.Create(filePath)
-   if err != nil {
-      return fmt.Errorf("failed to create file: %w", err)
-   }
-   defer out.Close()
-
-   if _, err := io.Copy(out, resp.Body); err != nil {
-      return fmt.Errorf("failed to write data to file: %w", err)
-   }
-
-   fmt.Fprintln(os.Stderr, "Server list successfully updated.")
-   return nil
-}
-
-func getCredentials() (string, string, error) {
-   cmd := exec.Command("credential", "-j=api.nordvpn.com")
-   output, err := cmd.Output()
-   if err != nil {
-      return "", "", fmt.Errorf("failed to run credential command: %w", err)
-   }
-
-   var creds []struct {
-      Username string
-      Password string
-   }
-
-   if err := json.Unmarshal(output, &creds); err != nil {
-      return "", "", fmt.Errorf("failed to parse credentials JSON: %w", err)
-   }
-
-   if len(creds) == 0 {
-      return "", "", fmt.Errorf("no credentials found in command output")
-   }
-
-   return creds[0].Username, creds[0].Password, nil
 }
 func processCountryServers(filePath string, country string) error {
    fileInfo, err := os.Stat(filePath)
@@ -259,4 +140,123 @@ func processCountryServers(filePath string, country string) error {
    }
 
    return nil
+}
+
+func refreshFile(filePath string) error {
+   u := url.URL{
+      Scheme:   "https",
+      Host:     "api.nordvpn.com",
+      Path:     "/v1/servers",
+      RawQuery: "limit=0",
+   }
+
+   // Print info to Stderr so Stdout remains clean for scripting
+   fmt.Fprintf(os.Stderr, "Downloading latest server list from %s...\n", u.String())
+   resp, err := http.Get(u.String())
+   if err != nil {
+      return fmt.Errorf("failed to fetch data: %w", err)
+   }
+   defer resp.Body.Close()
+
+   if resp.StatusCode != http.StatusOK {
+      return fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+   }
+
+   // Ensure the cache directory exists before writing
+   if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+      return fmt.Errorf("failed to create directory: %w", err)
+   }
+
+   out, err := os.Create(filePath)
+   if err != nil {
+      return fmt.Errorf("failed to create file: %w", err)
+   }
+   defer out.Close()
+
+   if _, err := io.Copy(out, resp.Body); err != nil {
+      return fmt.Errorf("failed to write data to file: %w", err)
+   }
+
+   fmt.Fprintln(os.Stderr, "Server list successfully updated.")
+   return nil
+}
+
+// Define the necessary structs to parse the JSON data
+type Country struct {
+   Code string `json:"code"`
+}
+
+type Group struct {
+   Identifier string `json:"identifier"`
+}
+
+type Location struct {
+   Country Country `json:"country"`
+}
+
+type Metadata struct {
+   Name  string `json:"name"`
+   Value string `json:"value"`
+}
+
+type Server struct {
+   Name         string       `json:"name"`
+   Hostname     string       `json:"hostname"`
+   Load         int          `json:"load"`
+   Locations    []Location   `json:"locations"`
+   Groups       []Group      `json:"groups"`
+   Technologies []Technology `json:"technologies"`
+}
+
+// GetFastestServers filters by exact country code, excludes known bad groups, sorts by load, and limits results.
+func GetFastestServers(servers []*Server, countryCode string, limit int) []*Server {
+   var filtered []*Server
+
+   // Define server groups that do not work with standard proxy auth on port 89
+   badGroups := map[string]bool{
+      "legacy_dedicated_ip":       true, // Dedicated IPs
+      "legacy_double_vpn":         true, // Double VPN
+      "legacy_obfuscated_servers": true, // Obfuscated servers
+   }
+
+   for _, s := range servers {
+      // 1. EXACT match for country code
+      isTargetCountry := false
+      for _, loc := range s.Locations {
+         if loc.Country.Code == countryCode {
+            isTargetCountry = true
+            break
+         }
+      }
+
+      // 2. Exclude known bad options
+      isBadServer := false
+      for _, group := range s.Groups {
+         if badGroups[group.Identifier] {
+            isBadServer = true
+            break
+         }
+      }
+
+      // Only append if it's the target country AND not a known bad server type
+      if isTargetCountry && !isBadServer {
+         filtered = append(filtered, s)
+      }
+   }
+
+   // 3. Sort the filtered pointers by Load
+   slices.SortFunc(filtered, func(a, b *Server) int {
+      return cmp.Compare(a.Load, b.Load)
+   })
+
+   // 4. Limit the results
+   if len(filtered) > limit {
+      return filtered[:limit]
+   }
+   return filtered
+}
+
+type Technology struct {
+   Identifier string     `json:"identifier"`
+   Metadata   []Metadata `json:"metadata"`
 }

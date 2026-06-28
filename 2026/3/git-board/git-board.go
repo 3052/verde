@@ -10,6 +10,56 @@ import (
    "time"
 )
 
+const (
+   fail = "\x1b[30;101m Fail \x1b[m"
+   pass = "\x1b[30;102m Pass \x1b[m"
+)
+
+const format = "{{ .AddStatus }} additions\ttarget:{{ .Target }}\tactual:{{ .Add }}\n" +
+   "{{ .DeleteStatus }} deletions\ttarget:{{ .Target }}\tactual:{{ .Delete }}\n" +
+   "{{ .ChangeStatus }} changed files\ttarget:{{ .Target}}\tactual:{{ .Change }}\n" +
+   "{{ .DateStatus }} last commit\ttarget:{{ .Then }}\tactual:{{ .Now }}\n"
+
+func main() {
+   // Updated function call
+   board, err := GenerateGitBoard()
+   if err != nil {
+      log.Fatal(err)
+   }
+   template_data, err := new(template.Template).Parse(format)
+   if err != nil {
+      log.Fatal(err)
+   }
+   if err := template_data.Execute(os.Stdout, board); err != nil {
+      log.Fatal(err)
+   }
+}
+
+func run(name string, args ...string) (string, error) {
+   var data strings.Builder
+   command := exec.Command(name, args...)
+   command.Stdout = &data
+   fmt.Println(command.Args)
+   err := command.Run()
+   if err != nil {
+      return "", err
+   }
+   return data.String(), nil
+}
+
+type GitBoard struct {
+   Add          int
+   AddStatus    string
+   Delete       int
+   DeleteStatus string
+   Change       int
+   ChangeStatus string
+   Target       int
+   Then         string
+   Now          string
+   DateStatus   string
+}
+
 func GenerateGitBoard() (*GitBoard, error) {
    g := &GitBoard{}
 
@@ -65,54 +115,4 @@ func GenerateGitBoard() (*GitBoard, error) {
    }
 
    return g, nil
-}
-
-const (
-   fail = "\x1b[30;101m Fail \x1b[m"
-   pass = "\x1b[30;102m Pass \x1b[m"
-)
-
-const format = "{{ .AddStatus }} additions\ttarget:{{ .Target }}\tactual:{{ .Add }}\n" +
-   "{{ .DeleteStatus }} deletions\ttarget:{{ .Target }}\tactual:{{ .Delete }}\n" +
-   "{{ .ChangeStatus }} changed files\ttarget:{{ .Target}}\tactual:{{ .Change }}\n" +
-   "{{ .DateStatus }} last commit\ttarget:{{ .Then }}\tactual:{{ .Now }}\n"
-
-type GitBoard struct {
-   Add          int
-   AddStatus    string
-   Delete       int
-   DeleteStatus string
-   Change       int
-   ChangeStatus string
-   Target       int
-   Then         string
-   Now          string
-   DateStatus   string
-}
-
-func main() {
-   // Updated function call
-   board, err := GenerateGitBoard()
-   if err != nil {
-      log.Fatal(err)
-   }
-   template_data, err := new(template.Template).Parse(format)
-   if err != nil {
-      log.Fatal(err)
-   }
-   if err := template_data.Execute(os.Stdout, board); err != nil {
-      log.Fatal(err)
-   }
-}
-
-func run(name string, args ...string) (string, error) {
-   var data strings.Builder
-   command := exec.Command(name, args...)
-   command.Stdout = &data
-   fmt.Println(command.Args)
-   err := command.Run()
-   if err != nil {
-      return "", err
-   }
-   return data.String(), nil
 }

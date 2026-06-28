@@ -2,20 +2,6 @@ package main
 
 import "fmt"
 
-func main() {
-   fmt.Println(len(tests))
-}
-
-type test struct {
-   go_sum    int
-   issue     string
-   issue_url string
-   linux     bool
-   pushed_at int
-   size      string
-   url       string
-}
-
 var tests = []test{
    {
       go_sum:    0,
@@ -112,4 +98,18 @@ var tests = []test{
       issue_url: "github.com/torlangballe/zui/issues/4",
       issue:     "found packages zwindow (Window!js.go) and zui (Window_windows.go)",
    },
+}
+
+func main() {
+   fmt.Println(len(tests))
+}
+
+type test struct {
+   go_sum    int
+   issue     string
+   issue_url string
+   linux     bool
+   pushed_at int
+   size      string
+   url       string
 }

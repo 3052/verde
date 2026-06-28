@@ -107,7 +107,7 @@ func processFile(filename string, writeResult bool) error {
    // (e.g. go/doc ignores methods if their parent type isn't in the same file)
    for i, d := range f.Decls {
       if _, exists := rankMap[i]; !exists {
-         cat := 1 // Default fallback for init() or special declarations
+         cat := 1 // Default fallback for special declarations
 
          switch decl := d.(type) {
          case *ast.GenDecl:
@@ -142,9 +142,7 @@ func processFile(filename string, writeResult bool) error {
                }
             }
          case *ast.FuncDecl:
-            if decl.Name.Name == "init" {
-               cat = 1
-            } else if decl.Recv != nil {
+            if decl.Recv != nil {
                cat = 5 // Orphaned method (receiver type is in another file)
             } else {
                cat = 4 // Orphaned top-level function

@@ -35,26 +35,6 @@ var defaultExcludeTypes = []string{
    "video/mp4",
 }
 
-type HAR struct {
-   Log struct {
-      Version string            `json:"version"`
-      Creator interface{}       `json:"creator"`
-      Pages   interface{}       `json:"pages,omitempty"`
-      Entries []json.RawMessage `json:"entries"`
-   } `json:"log"`
-}
-
-type PartialEntry struct {
-   Response struct {
-      Headers []NameValuePair `json:"headers"`
-   } `json:"response"`
-}
-
-type NameValuePair struct {
-   Name  string `json:"name"`
-   Value string `json:"value"`
-}
-
 func main() {
    var inputFile, excludeTypes string
 
@@ -189,4 +169,24 @@ func processHAR(inputFile, excludeTypes string) error {
    }
 
    return nil
+}
+
+type HAR struct {
+   Log struct {
+      Version string            `json:"version"`
+      Creator interface{}       `json:"creator"`
+      Pages   interface{}       `json:"pages,omitempty"`
+      Entries []json.RawMessage `json:"entries"`
+   } `json:"log"`
+}
+
+type NameValuePair struct {
+   Name  string `json:"name"`
+   Value string `json:"value"`
+}
+
+type PartialEntry struct {
+   Response struct {
+      Headers []NameValuePair `json:"headers"`
+   } `json:"response"`
 }
