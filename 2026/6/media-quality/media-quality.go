@@ -24,7 +24,6 @@ const (
 var allowedExtensions = map[string]bool{
    ".mp4": true,
    ".m4a": true,
-   ".md":  true,
    ".ini": true,
    ".jpg": true,
    ".vtt": true,
