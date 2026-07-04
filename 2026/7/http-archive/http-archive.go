@@ -13,6 +13,7 @@ import (
 
 var defaultExcludeTypes = []string{
    "<missing>",
+   "application/binary",
    "application/dash+xml",
    "application/font-woff",
    "application/font-woff2",

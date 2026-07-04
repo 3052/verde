@@ -17,10 +17,10 @@ import (
 var targets = []string{
    "BRAUMS STORE",
    "CHICK-FIL-A",
-   "CHICKEN FRIED RICE",
    "JASON'S DELI",
    "LA MADELEINE",
    "MCDONALD'S",
+   "ROMANO'S PIZ",
    "SCHLOTZSKYS",
    "SPRING CREEK",
    "WENDY",
