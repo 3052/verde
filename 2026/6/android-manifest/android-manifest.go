@@ -39,6 +39,21 @@ func main() {
    }
 }
 
+type intent_filter struct {
+   Action struct {
+      Name string `xml:"name,attr"`
+   } `xml:"action"`
+   Category []struct {
+      Name string `xml:"name,attr"`
+   } `xml:"category"`
+   Data []struct {
+      Scheme      string `xml:"scheme,attr"`
+      Host        string `xml:"host,attr"`
+      PathPattern string `xml:"pathPattern,attr"`
+      PathPrefix  string `xml:"pathPrefix,attr"`
+   } `xml:"data"`
+}
+
 func (i *intent_filter) String() string {
    var b strings.Builder
    b.WriteString("action.name = ")
@@ -74,21 +89,6 @@ type manifest struct {
          IntentFilter []intent_filter `xml:"intent-filter"`
       } `xml:"activity"`
    } `xml:"application"`
-}
-
-type intent_filter struct {
-   Action struct {
-      Name string `xml:"name,attr"`
-   } `xml:"action"`
-   Category []struct {
-      Name string `xml:"name,attr"`
-   } `xml:"category"`
-   Data []struct {
-      Scheme      string `xml:"scheme,attr"`
-      Host        string `xml:"host,attr"`
-      PathPattern string `xml:"pathPattern,attr"`
-      PathPrefix  string `xml:"pathPrefix,attr"`
-   } `xml:"data"`
 }
 
 func (m manifest) intent_filter() iter.Seq[intent_filter] {

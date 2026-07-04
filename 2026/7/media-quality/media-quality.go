@@ -2,6 +2,8 @@ package main
 
 import (
    "bytes"
+   "encoding/json"
+   "flag"
    "fmt"
    "io/fs"
    "os"
@@ -18,16 +20,17 @@ const (
    GB = 1024 * MB
 
    SizeThreshold = 4 * int64(GB)
-   MinBitrate    = 2_000_000 // 2 Mbps
 )
 
 var allowedExtensions = map[string]bool{
-   ".mp4": true,
-   ".m4a": true,
-   ".ini": true,
-   ".jpg": true,
-   ".vtt": true,
-   ".ts":  true,
+   ".mp4":  true,
+   ".m4a":  true,
+   ".ini":  true,
+   ".jpg":  true,
+   ".vtt":  true,
+   ".ts":   true,
+   ".txt":  true,
+   ".json": true, // Added so metadata.json isn't flagged
 }
 
 // mediaExtensions defines which files should be checked for bitrate.
@@ -58,15 +61,25 @@ func getBitrate(path string) (int64, error) {
 }
 
 func main() {
-   rootDir := "."
-   if len(os.Args) > 1 {
-      rootDir = os.Args[1]
+   var rootDir string
+   var minBitrate int64
+
+   flag.StringVar(&rootDir, "dir", "", "Root directory to audit")
+   flag.Int64Var(&minBitrate, "min-bitrate", 2_400_000, "Minimum acceptable bitrate in bits per second")
+   flag.Parse()
+
+   // Require the user to provide a directory via the flag
+   if rootDir == "" {
+      flag.Usage()
+      os.Exit(1)
    }
 
-   fmt.Printf("Auditing '%s'...\n", rootDir)
+   fmt.Printf("Auditing '%s' (Minimum Bitrate: %d bps)...\n", rootDir, minBitrate)
    fmt.Println(strings.Repeat("-", 70))
 
-   auditor := &Auditor{}
+   auditor := &Auditor{
+      MinBitrate: minBitrate,
+   }
    err := filepath.WalkDir(rootDir, auditor.auditFile)
 
    if err != nil {
@@ -74,6 +87,15 @@ func main() {
    }
 
    fmt.Println(strings.Repeat("-", 70))
+
+   // --- PRINT EXCLUDES AT THE END ---
+   if len(auditor.ExcludedDirs) > 0 {
+      fmt.Println("Excluded Folders:")
+      for _, ex := range auditor.ExcludedDirs {
+         fmt.Printf("[Skipped] %s\n", ex)
+      }
+      fmt.Println(strings.Repeat("-", 70))
+   }
 
    // --- PRINT FAILURES AT THE END ---
    if len(auditor.Failures) > 0 {
@@ -93,9 +115,11 @@ type AuditResult struct {
    Flags []string
 }
 
-// Auditor holds the state of the audit, including all failures.
+// Auditor holds the state of the audit, including all failures and exclusions.
 type Auditor struct {
-   Failures []AuditResult
+   Failures     []AuditResult
+   ExcludedDirs []string
+   MinBitrate   int64
 }
 
 // auditFile is the WalkDir callback that flags files exceeding the size
@@ -106,6 +130,23 @@ func (a *Auditor) auditFile(path string, entry fs.DirEntry, err error) error {
    }
 
    if entry.IsDir() {
+      // Check for metadata.json in this directory
+      metaPath := filepath.Join(path, "metadata.json")
+      data, err := os.ReadFile(metaPath)
+      if err == nil {
+         // File exists, check if "exclude" is true
+         var meta struct {
+            Exclude bool `json:"exclude"`
+         }
+         if err := json.Unmarshal(data, &meta); err == nil {
+            if meta.Exclude {
+               fmt.Printf("Skipping excluded folder: %s\n", path)
+               // Record the excluded directory for the end summary
+               a.ExcludedDirs = append(a.ExcludedDirs, path)
+               return filepath.SkipDir // Bypasses the entire folder
+            }
+         }
+      }
       return nil
    }
 
@@ -143,7 +184,8 @@ func (a *Auditor) auditFile(path string, entry fs.DirEntry, err error) error {
          return fmt.Errorf("failed to get bitrate for %s: %w", path, err)
       }
 
-      if bitrate > 0 && bitrate < MinBitrate {
+      // Use the struct's MinBitrate field instead of the hardcoded constant
+      if bitrate > 0 && bitrate < a.MinBitrate {
          kbps := bitrate / 1000
          flags = append(flags, fmt.Sprintf("%d kbps", kbps))
       }

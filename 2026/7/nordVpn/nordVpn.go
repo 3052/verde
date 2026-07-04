@@ -16,8 +16,6 @@ import (
    "time"
 )
 
-const limit = 16
-
 func getCredentials() (string, string, error) {
    cmd := exec.Command("credential", "-j=api.nordvpn.com")
    output, err := cmd.Output()
@@ -74,6 +72,7 @@ func main() {
    flag.Usage()
    os.Exit(1)
 }
+
 func processCountryServers(filePath string, country string) error {
    fileInfo, err := os.Stat(filePath)
    if err != nil {
@@ -98,9 +97,9 @@ func processCountryServers(filePath string, country string) error {
       return fmt.Errorf("failed to parse JSON: %w", err)
    }
 
-   fastest := GetFastestServers(servers, country, limit)
+   sortedServers := GetSortedServers(servers, country)
 
-   if len(fastest) == 0 {
+   if len(sortedServers) == 0 {
       return nil
    }
 
@@ -110,7 +109,7 @@ func processCountryServers(filePath string, country string) error {
    }
 
    // Print the results in strict key-value line output format to Stdout
-   for i, s := range fastest {
+   for i, s := range sortedServers {
       // Find the actual proxy hostname for this server if it exists
       proxyHostname := s.Hostname // Default fallback
       for _, tech := range s.Technologies {
@@ -134,7 +133,7 @@ func processCountryServers(filePath string, country string) error {
       fmt.Printf("url: %s\n", u.String())
 
       // Print a blank line between items, except after the very last one
-      if i < len(fastest)-1 {
+      if i < len(sortedServers)-1 {
          fmt.Println()
       }
    }
@@ -208,8 +207,8 @@ type Server struct {
    Technologies []Technology `json:"technologies"`
 }
 
-// GetFastestServers filters by exact country code, excludes known bad groups, sorts by load, and limits results.
-func GetFastestServers(servers []*Server, countryCode string, limit int) []*Server {
+// GetSortedServers filters by exact country code, excludes known bad groups, and sorts by load descending.
+func GetSortedServers(servers []*Server, countryCode string) []*Server {
    var filtered []*Server
 
    // Define server groups that do not work with standard proxy auth on port 89
@@ -244,15 +243,11 @@ func GetFastestServers(servers []*Server, countryCode string, limit int) []*Serv
       }
    }
 
-   // 3. Sort the filtered pointers by Load
+   // 3. Sort the filtered pointers by Load (Descending)
    slices.SortFunc(filtered, func(a, b *Server) int {
-      return cmp.Compare(a.Load, b.Load)
+      return cmp.Compare(b.Load, a.Load)
    })
 
-   // 4. Limit the results
-   if len(filtered) > limit {
-      return filtered[:limit]
-   }
    return filtered
 }
 
