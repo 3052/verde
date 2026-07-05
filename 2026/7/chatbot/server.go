@@ -9,9 +9,9 @@ import (
    "mime/multipart"
    "net/http"
    "os"
+   "strings"
 )
 
-// handleRoot handles rendering the page (GET) and streaming new responses (POST)
 func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, footerHTML string) error {
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
@@ -22,7 +22,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
    }
 
    if r.Method == http.MethodPost {
-      r.ParseMultipartForm(10 << 20) // 10MB limit
+      r.ParseMultipartForm(10 << 20)
 
       userText := r.FormValue("text")
       combinedInput := userText
@@ -48,11 +48,21 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
    fmt.Fprint(w, headerHTML)
 
+   // Render historical messages
    for _, msg := range messages {
       if msg.Role == "system" {
          fmt.Fprintf(w, `<div class="msg %s">%s</div>`+"\n", msg.Role, html.EscapeString(msg.Content))
       } else {
-         fmt.Fprintf(w, `<div class="msg %s">%s</div>`+"\n", msg.Role, renderMarkdown(msg.Content))
+         fmt.Fprintf(w, `<div class="msg %s">`, msg.Role)
+
+         // Dynamically wrap historical reasoning data if it exists
+         if msg.ReasoningContent != "" {
+            safeRc := strings.ReplaceAll(html.EscapeString(msg.ReasoningContent), "\n", "<br>")
+            fmt.Fprintf(w, `<div class="reasoning">%s</div><hr>`, safeRc)
+         }
+
+         md := &Markdown{} // Fresh state machine for each message
+         fmt.Fprintf(w, "%s</div>\n", md.Render(msg.Content))
       }
    }
 
@@ -60,6 +70,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
       flusher.Flush()
    }
 
+   // Stream new AI response
    if r.Method == http.MethodPost {
       fmt.Fprint(w, `<div class="msg assistant">`)
       if canFlush {
@@ -73,14 +84,18 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
          }
       }
 
-      reply, err := processChat(messages, apiKey, onToken)
+      replyReasoning, replyContent, err := processChat(messages, apiKey, onToken)
       if err != nil {
          return fmt.Errorf("API error: %w", err)
       }
 
       fmt.Fprintln(w, "</div>")
 
-      messages = append(messages, Message{Role: "assistant", Content: reply})
+      messages = append(messages, Message{
+         Role:             "assistant",
+         Content:          replyContent,
+         ReasoningContent: replyReasoning,
+      })
 
       newSessionData, err := json.MarshalIndent(messages, "", " ")
       if err != nil {
@@ -96,7 +111,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
    return nil
 }
 
-// processUploadedFile formats an uploaded file into Markdown block so the AI can read it natively
 func processUploadedFile(fileHeader *multipart.FileHeader) (string, error) {
    file, err := fileHeader.Open()
    if err != nil {
