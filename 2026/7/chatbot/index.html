@@ -8,13 +8,17 @@
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div id="chat">
-        <!-- CHAT_CONTENT -->
-    </div>
+    <!-- Move the input area above the chat DOM-wise so it is parsed first. 
+         CSS `position: fixed` ensures it still permanently stays at the bottom.
+         This prevents malformed AI outputs (like unclosed <!-- ) from swallowing it. -->
     <form class="input-area" method="POST" action="/" enctype="multipart/form-data">
         <input type="file" name="files" multiple>
         <textarea name="text" placeholder="Type your prompt... (Press Tab then Enter to Send)" required autofocus></textarea>
         <button type="submit">Send</button>
     </form>
+    
+    <div id="chat">
+        <!-- CHAT_CONTENT -->
+    </div>
 </body>
 </html>

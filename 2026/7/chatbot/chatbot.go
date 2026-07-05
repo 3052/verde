@@ -21,12 +21,10 @@ const (
 // processChat calls the API and streams tokens back via the onToken callback.
 func processChat(messages []Message, apiKey string, onToken func(text string)) (string, error) {
    payload := map[string]any{
-      "model":    "glm-5.2",
-      "messages": messages,
-      "stream":   true,
-      "stream_options": map[string]any{
-         "include_usage": true,
-      },
+      "model":          "glm-5.2",
+      "messages":       messages,
+      "stream":         true,
+      "stream_options": map[string]bool{"include_usage": true},
    }
 
    body, err := json.Marshal(payload)
@@ -57,19 +55,16 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
    var fullReply string
    var printedReasoning bool
    var transitionedToContent bool
-
    scanner := bufio.NewScanner(resp.Body)
 
    for scanner.Scan() {
       line := scanner.Text()
-
       if line == "" {
          continue
       }
 
       if strings.HasPrefix(line, "data: ") {
          line = strings.TrimPrefix(line, "data: ")
-
          if line == "[DONE]" {
             break
          }
@@ -80,7 +75,6 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
          }
 
          for _, choice := range streamResp.Choices {
-            // Send reasoning tokens wrapped in a dedicated div
             if choice.Delta.ReasoningContent != "" {
                if !printedReasoning {
                   if onToken != nil {
@@ -90,17 +84,17 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                   printedReasoning = true
                }
 
-               // We still escape reasoning content because the model assumes it's internal plain text
-               safeRc := html.EscapeString(choice.Delta.ReasoningContent)
+               rawRc := choice.Delta.ReasoningContent
+               fullReply += rawRc
+
+               displayRc := html.EscapeString(rawRc)
+               displayRc = strings.ReplaceAll(displayRc, "\n", "<br>")
                if onToken != nil {
-                  onToken(safeRc)
+                  onToken(displayRc)
                }
-               fullReply += safeRc
             }
 
-            // Send actual content tokens (native HTML allowed)
             if choice.Delta.Content != "" {
-               // Cap off the reasoning div with an <hr> separator before the final answer
                if printedReasoning && !transitionedToContent {
                   if onToken != nil {
                      onToken(reasoningEndLine)
@@ -109,17 +103,18 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                   transitionedToContent = true
                }
 
-               content := choice.Delta.Content
+               rawContent := choice.Delta.Content
+               fullReply += rawContent
+
+               displayContent := html.EscapeString(rawContent)
+               displayContent = strings.ReplaceAll(displayContent, "\n", "<br>")
                if onToken != nil {
-                  onToken(content)
+                  onToken(displayContent)
                }
-               fullReply += content
             }
          }
 
-         // Check if this chunk includes usage statistics
-         if streamResp.Usage != nil && (streamResp.Usage.TotalTokens > 0 || streamResp.Usage.PromptTokens > 0) {
-            // Cap off reasoning if the stream ended abruptly before generating standard text
+         if streamResp.Usage != nil && streamResp.Usage.PromptTokens > 0 {
             if printedReasoning && !transitionedToContent {
                if onToken != nil {
                   onToken(reasoningEndLine)
@@ -128,24 +123,19 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                transitionedToContent = true
             }
 
-            stats := fmt.Sprintf(`<div class="token-stats">Tokens: %d prompt (%d cached) | %d completion | %d total</div>`,
+            stats := fmt.Sprintf(`<div class="token-stats">Input Tokens: %d (%d cached)</div>`,
                streamResp.Usage.PromptTokens,
                streamResp.Usage.PromptTokensDetails.CachedTokens,
-               streamResp.Usage.CompletionTokens,
-               streamResp.Usage.TotalTokens,
             )
 
             if onToken != nil {
                onToken(stats)
             }
-
-            // Append to fullReply so it persists in the chat history across page refreshes
             fullReply += stats
          }
       }
    }
 
-   // Just in case it stopped generating before answering, close the reasoning div
    if printedReasoning && !transitionedToContent {
       if onToken != nil {
          onToken(reasoningEnd)

@@ -85,6 +85,12 @@ code {
     font-family: Consolas, monospace;
 }
 
+/* Click a file's code block to select all, then Ctrl+C to copy */
+details pre {
+    -webkit-user-select: all;
+    user-select: all;
+}
+
 details {
     background: #222;
     padding: 10px;

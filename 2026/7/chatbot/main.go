@@ -25,7 +25,7 @@ var styleCSS string
 func main() {
    log.SetFlags(log.Ltime)
 
-   apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your configuration directory")
+   apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your config directory")
    flag.Parse()
 
    if err := run(*apiKeyFlag); err != nil {
@@ -35,7 +35,6 @@ func main() {
 
 // run handles the configuration loading/saving and starts the web server
 func run(apiKeyFlag string) error {
-   // Split the embedded HTML explicitly using strings.Cut
    headerHTML, footerHTML, found := strings.Cut(indexHTML, "<!-- CHAT_CONTENT -->")
    if !found {
       return fmt.Errorf("error: index.html is missing the <!-- CHAT_CONTENT --> marker")
@@ -49,7 +48,6 @@ func run(apiKeyFlag string) error {
    appConfigDir := filepath.Join(configDir, "chatbot")
    keyFilePath := filepath.Join(appConfigDir, "api-key")
 
-   // If the user provided an API key flag, save it globally and exit
    if apiKeyFlag != "" {
       if err := os.MkdirAll(appConfigDir, 0700); err != nil {
          return fmt.Errorf("error creating config directory: %w", err)
@@ -61,26 +59,22 @@ func run(apiKeyFlag string) error {
       return nil
    }
 
-   // Read the API key from the global config file
    apiKeyBytes, err := os.ReadFile(keyFilePath)
    if err != nil {
       return fmt.Errorf("API key not found. Please run with '-api-key YOUR_KEY' first")
    }
    apiKey := string(apiKeyBytes)
 
-   // Serve the CSS file
    http.HandleFunc("/style.css", func(w http.ResponseWriter, r *http.Request) {
       w.Header().Set("Content-Type", "text/css")
       fmt.Fprint(w, styleCSS)
    })
 
-   // Serve the favicon
    http.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
       w.Header().Set("Content-Type", "image/svg+xml")
       fmt.Fprint(w, faviconSVG)
    })
 
-   // Setup HTTP Server with the main chat route
    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
       if err := handleRoot(w, r, apiKey, headerHTML, footerHTML); err != nil {
          log.Fatalf("Handler error: %v", err)
