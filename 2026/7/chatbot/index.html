@@ -5,120 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Z.ai Chat</title>
     <style>
-        body { font-family: sans-serif; background: #1e1e1e; color: #eee; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
-        #chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; padding-right: 10px; }
+        body { font-family: sans-serif; background: #1e1e1e; color: #eee; margin: 0; padding: 20px; box-sizing: border-box; }
+        #chat { display: flex; flex-direction: column; gap: 15px; margin-bottom: 90px; }
         .msg { padding: 10px 15px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; word-wrap: break-word; }
         .user { background: #2b3a4a; align-self: flex-end; border: 1px solid #4a6a8a; color: #a6c8e8; }
         .assistant { background: #333; align-self: flex-start; border: 1px solid #444; }
         .reasoning { color: #d7ba7d; font-style: italic; }
-        .input-area { display: flex; gap: 10px; background: #252526; padding: 15px; border-radius: 8px; }
-        textarea { flex: 1; background: #1e1e1e; color: #eee; border: 1px solid #444; padding: 10px; border-radius: 4px; resize: none; height: 50px; font-family: inherit; }
+        .input-area { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 10px; background: #252526; padding: 15px 20px; border-top: 1px solid #444; }
+        textarea { flex: 1; background: #1e1e1e; color: #eee; border: 1px solid #444; padding: 10px; border-radius: 4px; resize: none; height: 40px; font-family: inherit; }
         button, input[type="file"]::file-selector-button { background: #0e639c; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
         button:hover { background: #1177bb; }
-        pre { background: #000; padding: 10px; border-radius: 4px; overflow-x: auto; }
     </style>
 </head>
 <body>
-    <div id="chat"></div>
-    <form class="input-area" id="chatForm">
-        <input type="file" id="fileInput" multiple>
-        <textarea id="textInput" placeholder="Type your prompt..." required></textarea>
+    <div id="chat">
+        <!-- CHAT_CONTENT -->
+    </div>
+    <form class="input-area" method="POST" action="/" enctype="multipart/form-data">
+        <input type="file" name="files" multiple>
+        <textarea name="text" placeholder="Type your prompt... (Shift+Enter for new line)" required autofocus></textarea>
         <button type="submit">Send</button>
     </form>
-
     <script>
-        const chat = document.getElementById('chat');
-        const form = document.getElementById('chatForm');
-        const textInput = document.getElementById('textInput');
-        const fileInput = document.getElementById('fileInput');
-
-        function appendMessage(role, content) {
-            const div = document.createElement('div');
-            div.className = 'msg ' + role;
-            div.textContent = content;
-            chat.appendChild(div);
-            chat.scrollTop = chat.scrollHeight;
-            return div;
-        }
-
-        // Load existing session on startup
-        fetch('/api/session').then(r => r.json()).then(messages => {
-            messages.forEach(m => {
-                if(m.role !== 'system') appendMessage(m.role, m.content);
-            });
-        });
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const text = textInput.value;
-            const files = fileInput.files;
-
-            // Render local user message immediately
-            let userDisplay = files.length > 0 ? `[ Attached ${files.length} file(s) ]\n\n${text}` : text;
-            appendMessage('user', userDisplay);
-
-            const formData = new FormData();
-            formData.append('text', text);
-            for (let i = 0; i < files.length; i++) {
-                formData.append('files', files[i]);
-            }
-
-            textInput.value = '';
-            fileInput.value = '';
-
-            const assistantDiv = appendMessage('assistant', '');
-            let reasoningSpan = null;
-            let contentSpan = null;
-
-            try {
-                const response = await fetch('/api/chat', { method: 'POST', body: formData });
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    buffer += decoder.decode(value, {stream: true});
-                    let lines = buffer.split('\n');
-                    buffer = lines.pop(); // keep incomplete line in buffer
-
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        const data = JSON.parse(line);
-
-                        if (data.is_reasoning) {
-                            if (!reasoningSpan) {
-                                reasoningSpan = document.createElement('span');
-                                reasoningSpan.className = 'reasoning';
-                                assistantDiv.appendChild(reasoningSpan);
-                            }
-                            reasoningSpan.textContent += data.text;
-                        } else {
-                            if (reasoningSpan && !contentSpan) {
-                                assistantDiv.appendChild(document.createTextNode('\n\n'));
-                            }
-                            if (!contentSpan) {
-                                contentSpan = document.createElement('span');
-                                assistantDiv.appendChild(contentSpan);
-                            }
-                            contentSpan.textContent += data.text;
-                        }
-                        chat.scrollTop = chat.scrollHeight;
-                    }
-                }
-            } catch (err) {
-                console.error(err);
-                appendMessage('assistant', 'Error: Connection failed.');
-            }
-        });
-        
-        // Allow enter to submit
-        textInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                form.dispatchEvent(new Event('submit'));
+        // QoL: Auto-scroll to bottom and allow Enter to submit
+        window.scrollTo(0, document.body.scrollHeight);
+        const ta = document.querySelector('textarea');
+        ta.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); 
+                ta.form.submit(); 
             }
         });
     </script>

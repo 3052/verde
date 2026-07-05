@@ -5,124 +5,131 @@ import (
    "encoding/json"
    "flag"
    "fmt"
+   "html"
    "io"
    "log"
    "net/http"
    "os"
    "path/filepath"
+   "strings"
 )
 
 const sessionFileName = "session.json"
 
+var headerHTML, footerHTML string
+
 //go:embed index.html
-var indexHTML []byte
+var indexHTML string
 
-// Handles a new message submission, file attachments, and streams the response
-func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
-   if r.Method != http.MethodPost {
-      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// handleRoot handles rendering the page (GET) and streaming new responses (POST)
+func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
+   if r.URL.Path != "/" {
+      http.NotFound(w, r)
       return
    }
 
-   // Parse multipart form (up to 10MB in memory)
-   err := r.ParseMultipartForm(10 << 20)
-   if err != nil {
-      http.Error(w, "Failed to parse form", http.StatusBadRequest)
-      return
-   }
-
-   userText := r.FormValue("text")
-   combinedInput := ""
-
-   // Process attached files
-   if files := r.MultipartForm.File["files"]; len(files) > 0 {
-      for _, fileHeader := range files {
-         file, err := fileHeader.Open()
-         if err != nil {
-            continue
-         }
-         fileData, _ := io.ReadAll(file)
-         file.Close()
-
-         if combinedInput != "" {
-            combinedInput += "\n"
-         }
-         combinedInput += fmt.Sprintf("### %s\n```\n%s\n```\n\n", fileHeader.Filename, fileData)
-      }
-   }
-
-   combinedInput += userText
-
-   if combinedInput == "" {
-      http.Error(w, "Empty input", http.StatusBadRequest)
-      return
-   }
-
-   // Load session
+   // 1. Load existing session
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
    if err == nil {
       json.Unmarshal(sessionData, &messages)
    }
-   messages = append(messages, Message{Role: "user", Content: combinedInput})
 
-   // Setup streaming headers
-   w.Header().Set("Content-Type", "application/json")
-   w.Header().Set("Cache-Control", "no-cache")
-   w.Header().Set("Connection", "keep-alive")
-   flusher, ok := w.(http.Flusher)
-   if !ok {
-      http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-      return
+   // 2. Process new user input if it's a POST request
+   if r.Method == http.MethodPost {
+      r.ParseMultipartForm(10 << 20) // 10MB limit
+
+      userText := r.FormValue("text")
+      combinedInput := ""
+
+      if files := r.MultipartForm.File["files"]; len(files) > 0 {
+         for _, fileHeader := range files {
+            file, err := fileHeader.Open()
+            if err != nil {
+               continue
+            }
+            fileData, _ := io.ReadAll(file)
+            file.Close()
+
+            if combinedInput != "" {
+               combinedInput += "\n"
+            }
+            combinedInput += fmt.Sprintf("### %s\n```\n%s\n```\n\n", fileHeader.Filename, fileData)
+         }
+      }
+
+      combinedInput += userText
+      if combinedInput != "" {
+         messages = append(messages, Message{Role: "user", Content: combinedInput})
+      }
    }
 
-   // Callback to push JSON chunks to the browser
-   onToken := func(text string, isReasoning bool) {
-      chunk := map[string]any{
-         "text":         text,
-         "is_reasoning": isReasoning,
+   // 3. Start writing the HTML response
+   w.Header().Set("Content-Type", "text/html; charset=utf-8")
+   w.Header().Set("Cache-Control", "no-cache")
+   flusher, canFlush := w.(http.Flusher)
+
+   fmt.Fprint(w, headerHTML)
+
+   // Render all historical messages
+   for _, msg := range messages {
+      if msg.Role == "system" {
+         continue
       }
-      b, _ := json.Marshal(chunk)
-      fmt.Fprintf(w, "%s\n", b)
+      fmt.Fprintf(w, "<div class=\"msg %s\">%s</div>\n", msg.Role, html.EscapeString(msg.Content))
+   }
+
+   if canFlush {
       flusher.Flush()
    }
 
-   // Call API
-   reply, err := processChat(messages, apiKey, onToken)
-   if err != nil {
-      log.Printf("API Error: %v", err)
-      return
-   }
-
-   // Save session
-   messages = append(messages, Message{Role: "assistant", Content: reply})
-   newSessionData, _ := json.MarshalIndent(messages, "", " ")
-   os.WriteFile(sessionFileName, newSessionData, 0644)
-}
-
-// Returns the current session history as JSON
-func handleGetSession(w http.ResponseWriter, r *http.Request) {
-   sessionData, err := os.ReadFile(sessionFileName)
-   if err != nil {
-      if os.IsNotExist(err) {
-         w.Write([]byte("[]"))
-         return
+   // 4. Stream the new AI response if it's a POST request
+   if r.Method == http.MethodPost {
+      fmt.Fprint(w, "<div class=\"msg assistant\">")
+      if canFlush {
+         flusher.Flush()
       }
-      http.Error(w, err.Error(), http.StatusInternalServerError)
-      return
+
+      // Callback for streaming tokens natively to HTML
+      onToken := func(text string, isReasoning bool) {
+         safeText := html.EscapeString(text)
+         if isReasoning {
+            fmt.Fprintf(w, "<span class=\"reasoning\">%s</span>", safeText)
+         } else {
+            fmt.Fprintf(w, "%s", safeText)
+         }
+
+         if canFlush {
+            flusher.Flush()
+         }
+      }
+
+      reply, err := processChat(messages, apiKey, onToken)
+      if err != nil {
+         fmt.Fprintf(w, "<br><br><b>Error:</b> %s", html.EscapeString(err.Error()))
+      }
+
+      fmt.Fprint(w, "</div>\n")
+
+      // Save updated session
+      messages = append(messages, Message{Role: "assistant", Content: reply})
+      newSessionData, _ := json.MarshalIndent(messages, "", " ")
+      os.WriteFile(sessionFileName, newSessionData, 0644)
    }
-   w.Header().Set("Content-Type", "application/json")
-   w.Write(sessionData)
+
+   // 5. Render footer and close connection
+   fmt.Fprint(w, footerHTML)
 }
 
-// Serves the frontend HTML/JS interface
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-   if r.URL.Path != "/" {
-      http.NotFound(w, r)
-      return
+func init() {
+   // Split the HTML file at the marker so we can stream chat content in the middle
+   parts := strings.Split(indexHTML, "<!-- CHAT_CONTENT -->")
+   if len(parts) == 2 {
+      headerHTML = parts[0]
+      footerHTML = parts[1]
+   } else {
+      log.Fatal("Error: index.html is missing the <!-- CHAT_CONTENT --> marker")
    }
-   w.Header().Set("Content-Type", "text/html")
-   w.Write(indexHTML)
 }
 
 func main() {
@@ -158,11 +165,9 @@ func main() {
    }
    apiKey := string(apiKeyBytes)
 
-   // Setup HTTP Server
-   http.HandleFunc("/", handleIndex)
-   http.HandleFunc("/api/session", handleGetSession)
-   http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
-      handleChat(w, r, apiKey)
+   // Setup HTTP Server with a single route
+   http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+      handleRoot(w, r, apiKey)
    })
 
    port := ":8080"
