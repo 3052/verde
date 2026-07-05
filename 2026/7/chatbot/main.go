@@ -16,13 +16,11 @@ import (
 
 const sessionFileName = "session.json"
 
-var headerHTML, footerHTML string
-
 //go:embed index.html
 var indexHTML string
 
 // handleRoot handles rendering the page (GET) and streaming new responses (POST)
-func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
+func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, footerHTML string) {
    if r.URL.Path != "/" {
       http.NotFound(w, r)
       return
@@ -31,26 +29,32 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
    // 1. Load existing session
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
-   if err == nil {
-      json.Unmarshal(sessionData, &messages)
+   if err != nil {
+      log.Printf("error reading %s: %v", sessionFileName, err)
+   } else if err := json.Unmarshal(sessionData, &messages); err != nil {
+      log.Fatalf("critical error parsing %s: %v", sessionFileName, err)
    }
 
    // 2. Process new user input if it's a POST request
    if r.Method == http.MethodPost {
       r.ParseMultipartForm(10 << 20) // 10MB limit
 
-      userText := r.FormValue("text")
-      combinedInput := ""
+      combinedInput := r.FormValue("text")
 
       if files := r.MultipartForm.File["files"]; len(files) > 0 {
          for _, fileHeader := range files {
             file, err := fileHeader.Open()
             if err != nil {
-               continue
+               log.Fatalf("error opening uploaded file %s: %v", fileHeader.Filename, err)
             }
-            fileData, _ := io.ReadAll(file)
+
+            fileData, err := io.ReadAll(file)
+            if err != nil {
+               log.Fatalf("error reading uploaded file %s: %v", fileHeader.Filename, err)
+            }
             file.Close()
 
+            // Ensure there is a line break between text and files (or between multiple files)
             if combinedInput != "" {
                combinedInput += "\n"
             }
@@ -58,7 +62,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
          }
       }
 
-      combinedInput += userText
       if combinedInput != "" {
          messages = append(messages, Message{Role: "user", Content: combinedInput})
       }
@@ -73,9 +76,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
 
    // Render all historical messages
    for _, msg := range messages {
-      if msg.Role == "system" {
-         continue
-      }
       fmt.Fprintf(w, "<div class=\"msg %s\">%s</div>\n", msg.Role, html.EscapeString(msg.Content))
    }
 
@@ -106,30 +106,28 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey string) {
 
       reply, err := processChat(messages, apiKey, onToken)
       if err != nil {
-         fmt.Fprintf(w, "<br><br><b>Error:</b> %s", html.EscapeString(err.Error()))
+         log.Fatalf("API Error: %v", err)
       }
 
       fmt.Fprint(w, "</div>\n")
 
       // Save updated session
       messages = append(messages, Message{Role: "assistant", Content: reply})
-      newSessionData, _ := json.MarshalIndent(messages, "", " ")
-      os.WriteFile(sessionFileName, newSessionData, 0644)
+
+      newSessionData, err := json.MarshalIndent(messages, "", " ")
+      if err != nil {
+         log.Fatalf("Error marshaling session data: %v", err)
+      }
+
+      if err := os.WriteFile(sessionFileName, newSessionData, 0644); err != nil {
+         log.Fatalf("Error writing session file: %v", err)
+      }
+
+      log.Printf("Writing %d items to %s", len(messages), sessionFileName)
    }
 
    // 5. Render footer and close connection
    fmt.Fprint(w, footerHTML)
-}
-
-func init() {
-   // Split the HTML file at the marker so we can stream chat content in the middle
-   parts := strings.Split(indexHTML, "<!-- CHAT_CONTENT -->")
-   if len(parts) == 2 {
-      headerHTML = parts[0]
-      footerHTML = parts[1]
-   } else {
-      log.Fatal("Error: index.html is missing the <!-- CHAT_CONTENT --> marker")
-   }
 }
 
 func main() {
@@ -138,41 +136,52 @@ func main() {
    apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your configuration directory")
    flag.Parse()
 
+   if err := run(*apiKeyFlag); err != nil {
+      log.Fatal(err)
+   }
+}
+
+// run handles the configuration loading/saving and starts the web server
+func run(apiKeyFlag string) error {
+   // Split the embedded HTML explicitly using strings.Cut
+   headerHTML, footerHTML, found := strings.Cut(indexHTML, "<!-- CHAT_CONTENT -->")
+   if !found {
+      return fmt.Errorf("error: index.html is missing the <!-- CHAT_CONTENT --> marker")
+   }
+
    configDir, err := os.UserConfigDir()
    if err != nil {
-      log.Fatalf("error getting user config directory: %v", err)
+      return fmt.Errorf("error getting user config directory: %w", err)
    }
 
    appConfigDir := filepath.Join(configDir, "chatbot")
    keyFilePath := filepath.Join(appConfigDir, "api-key")
 
    // If the user provided an API key flag, save it globally and exit
-   if *apiKeyFlag != "" {
+   if apiKeyFlag != "" {
       if err := os.MkdirAll(appConfigDir, 0700); err != nil {
-         log.Fatalf("error creating config directory: %v", err)
+         return fmt.Errorf("error creating config directory: %w", err)
       }
-      if err := os.WriteFile(keyFilePath, []byte(*apiKeyFlag), 0600); err != nil {
-         log.Fatalf("error writing API key to file: %v", err)
+      if err := os.WriteFile(keyFilePath, []byte(apiKeyFlag), 0600); err != nil {
+         return fmt.Errorf("error writing API key to file: %w", err)
       }
       log.Println("API key saved successfully.")
-      return
+      return nil
    }
 
    // Read the API key from the global config file
    apiKeyBytes, err := os.ReadFile(keyFilePath)
    if err != nil {
-      log.Fatalf("API key not found. Please run with '-api-key YOUR_KEY' first")
+      return fmt.Errorf("API key not found. Please run with '-api-key YOUR_KEY' first")
    }
    apiKey := string(apiKeyBytes)
 
    // Setup HTTP Server with a single route
    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-      handleRoot(w, r, apiKey)
+      handleRoot(w, r, apiKey, headerHTML, footerHTML)
    })
 
    port := ":8080"
-   log.Printf("Starting local server at http://localhost%s", port)
-   if err := http.ListenAndServe(port, nil); err != nil {
-      log.Fatal(err)
-   }
+   log.Printf("Starting local server at http://localhost%s - Press Ctrl+C to stop", port)
+   return http.ListenAndServe(port, nil)
 }

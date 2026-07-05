@@ -46,6 +46,9 @@ func processChat(messages []Message, apiKey string, onToken func(text string, is
    }
 
    var fullReply string
+   var printedReasoning bool
+   var transitionedToContent bool
+
    scanner := bufio.NewScanner(resp.Body)
 
    for scanner.Scan() {
@@ -70,6 +73,7 @@ func processChat(messages []Message, apiKey string, onToken func(text string, is
          for _, choice := range streamResp.Choices {
             // Send reasoning tokens
             if choice.Delta.ReasoningContent != "" {
+               printedReasoning = true
                if onToken != nil {
                   onToken(choice.Delta.ReasoningContent, true)
                }
@@ -77,6 +81,14 @@ func processChat(messages []Message, apiKey string, onToken func(text string, is
 
             // Send and store actual content tokens
             if choice.Delta.Content != "" {
+               // Inject a visual line break when transitioning from reasoning to the final answer
+               if printedReasoning && !transitionedToContent {
+                  if onToken != nil {
+                     onToken("\n\n", false)
+                  }
+                  transitionedToContent = true
+               }
+
                content := choice.Delta.Content
                if onToken != nil {
                   onToken(content, false)

@@ -23,19 +23,8 @@
     </div>
     <form class="input-area" method="POST" action="/" enctype="multipart/form-data">
         <input type="file" name="files" multiple>
-        <textarea name="text" placeholder="Type your prompt... (Shift+Enter for new line)" required autofocus></textarea>
+        <textarea name="text" placeholder="Type your prompt... (Press Tab then Enter to Send)" required autofocus></textarea>
         <button type="submit">Send</button>
     </form>
-    <script>
-        // QoL: Auto-scroll to bottom and allow Enter to submit
-        window.scrollTo(0, document.body.scrollHeight);
-        const ta = document.querySelector('textarea');
-        ta.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey) { 
-                e.preventDefault(); 
-                ta.form.submit(); 
-            }
-        });
-    </script>
 </body>
 </html>
