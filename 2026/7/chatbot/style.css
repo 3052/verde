@@ -1,0 +1,125 @@
+body {
+    font-family: sans-serif;
+    background: #1e1e1e;
+    color: #eee;
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+#chat {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 90px;
+}
+
+.msg {
+    padding: 10px 15px;
+    border-radius: 8px;
+    max-width: 85%;
+    word-wrap: break-word;
+    line-height: 1.5;
+}
+
+.user {
+    background: #2b3a4a;
+    align-self: flex-end;
+    border: 1px solid #4a6a8a;
+    color: #a6c8e8;
+}
+
+.assistant {
+    background: #333;
+    align-self: flex-start;
+    border: 1px solid #444;
+}
+
+.system {
+    background: #1a1a1a;
+    align-self: center;
+    border: 1px dashed #555;
+    color: #888;
+    font-size: 0.85em;
+    text-align: center;
+}
+
+.reasoning {
+    color: #d7ba7d;
+    font-style: italic;
+    white-space: pre-wrap;
+    display: block;
+    border-left: 3px solid #d7ba7d;
+    padding-left: 10px;
+    margin-bottom: 15px;
+}
+
+pre {
+    background: #111;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    max-width: 100%;
+    border: 1px solid #555;
+}
+
+code {
+    font-family: Consolas, monospace;
+}
+
+details {
+    background: #222;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    border: 1px solid #444;
+}
+
+summary {
+    cursor: pointer;
+    font-weight: bold;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid #555;
+    margin: 15px 0;
+}
+
+.input-area {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 10px;
+    background: #252526;
+    padding: 15px 20px;
+    border-top: 1px solid #444;
+}
+
+textarea {
+    flex: 1;
+    background: #1e1e1e;
+    color: #eee;
+    border: 1px solid #444;
+    padding: 10px;
+    border-radius: 4px;
+    resize: none;
+    height: 40px;
+    font-family: inherit;
+}
+
+button, 
+input[type="file"]::file-selector-button {
+    background: #0e639c;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #1177bb;
+}

@@ -19,48 +19,69 @@ const sessionFileName = "session.json"
 //go:embed index.html
 var indexHTML string
 
-// handleRoot handles rendering the page (GET) and streaming new responses (POST)
-func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, footerHTML string) {
-   if r.URL.Path != "/" {
-      http.NotFound(w, r)
-      return
-   }
+//go:embed style.css
+var styleCSS string
 
+// handleRoot handles rendering the page (GET) and streaming new responses (POST)
+func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, footerHTML string) error {
    // 1. Load existing session
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
    if err != nil {
       log.Printf("error reading %s: %v", sessionFileName, err)
    } else if err := json.Unmarshal(sessionData, &messages); err != nil {
-      log.Fatalf("critical error parsing %s: %v", sessionFileName, err)
+      return fmt.Errorf("critical error parsing %s: %w", sessionFileName, err)
+   }
+
+   // Initialize a new session with the formatting instructions
+   if len(messages) == 0 {
+      messages = append(messages, Message{
+         Role:    "system",
+         Content: "You are a helpful assistant. Please format your response using standard HTML tags (like <p>, <b>, <pre>, <code>, <ul>, <li>) instead of Markdown. Do not use markdown wrappers (like ```html).",
+      })
    }
 
    // 2. Process new user input if it's a POST request
    if r.Method == http.MethodPost {
       r.ParseMultipartForm(10 << 20) // 10MB limit
 
-      combinedInput := r.FormValue("text")
+      // Escape the user text and convert newlines to <br> so it renders perfectly in HTML
+      userText := html.EscapeString(r.FormValue("text"))
+      userText = strings.ReplaceAll(userText, "\n", "<br>")
 
+      var inputParts []string
+
+      // Add the user text FIRST
+      if userText != "" {
+         inputParts = append(inputParts, userText)
+      }
+
+      // Then process and add attached files BELOW the user text
       if files := r.MultipartForm.File["files"]; len(files) > 0 {
          for _, fileHeader := range files {
             file, err := fileHeader.Open()
             if err != nil {
-               log.Fatalf("error opening uploaded file %s: %v", fileHeader.Filename, err)
+               return fmt.Errorf("error opening uploaded file %s: %w", fileHeader.Filename, err)
             }
 
             fileData, err := io.ReadAll(file)
             if err != nil {
-               log.Fatalf("error reading uploaded file %s: %v", fileHeader.Filename, err)
+               file.Close() // Clean up before returning error
+               return fmt.Errorf("error reading uploaded file %s: %w", fileHeader.Filename, err)
             }
-            file.Close()
 
-            // Ensure there is a line break between text and files (or between multiple files)
-            if combinedInput != "" {
-               combinedInput += "\n"
+            if err := file.Close(); err != nil {
+               return fmt.Errorf("error closing uploaded file %s: %w", fileHeader.Filename, err)
             }
-            combinedInput += fmt.Sprintf("### %s\n```\n%s\n```\n\n", fileHeader.Filename, fileData)
+
+            // Wrap file contents in an HTML <details> block
+            safeData := html.EscapeString(string(fileData))
+            safeName := html.EscapeString(fileHeader.Filename)
+            inputParts = append(inputParts, fmt.Sprintf("<details><summary>File: %s</summary><pre><code>%s</code></pre></details>", safeName, safeData))
          }
       }
+
+      combinedInput := strings.Join(inputParts, "<br><br>")
 
       if combinedInput != "" {
          messages = append(messages, Message{Role: "user", Content: combinedInput})
@@ -76,7 +97,13 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
    // Render all historical messages
    for _, msg := range messages {
-      fmt.Fprintf(w, "<div class=\"msg %s\">%s</div>\n", msg.Role, html.EscapeString(msg.Content))
+      if msg.Role == "system" {
+         // Escape the system prompt so its literal HTML tags show up correctly on screen
+         fmt.Fprintf(w, `<div class="msg %s">%s</div>`+"\n", msg.Role, html.EscapeString(msg.Content))
+      } else {
+         // User input is already escaped before appending. Assistant HTML should not be escaped.
+         fmt.Fprintf(w, `<div class="msg %s">%s</div>`+"\n", msg.Role, msg.Content)
+      }
    }
 
    if canFlush {
@@ -85,20 +112,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
    // 4. Stream the new AI response if it's a POST request
    if r.Method == http.MethodPost {
-      fmt.Fprint(w, "<div class=\"msg assistant\">")
+      fmt.Fprint(w, `<div class="msg assistant">`)
       if canFlush {
          flusher.Flush()
       }
 
       // Callback for streaming tokens natively to HTML
-      onToken := func(text string, isReasoning bool) {
-         safeText := html.EscapeString(text)
-         if isReasoning {
-            fmt.Fprintf(w, "<span class=\"reasoning\">%s</span>", safeText)
-         } else {
-            fmt.Fprintf(w, "%s", safeText)
-         }
-
+      onToken := func(text string) {
+         // Since we requested HTML, we pass the AI's tokens through directly without escaping them!
+         fmt.Fprint(w, text)
          if canFlush {
             flusher.Flush()
          }
@@ -106,21 +128,21 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
       reply, err := processChat(messages, apiKey, onToken)
       if err != nil {
-         log.Fatalf("API Error: %v", err)
+         return fmt.Errorf("API error: %w", err)
       }
 
-      fmt.Fprint(w, "</div>\n")
+      fmt.Fprintln(w, "</div>")
 
       // Save updated session
       messages = append(messages, Message{Role: "assistant", Content: reply})
 
       newSessionData, err := json.MarshalIndent(messages, "", " ")
       if err != nil {
-         log.Fatalf("Error marshaling session data: %v", err)
+         return fmt.Errorf("error marshaling session data: %w", err)
       }
 
       if err := os.WriteFile(sessionFileName, newSessionData, 0644); err != nil {
-         log.Fatalf("Error writing session file: %v", err)
+         return fmt.Errorf("error writing session file: %w", err)
       }
 
       log.Printf("Writing %d items to %s", len(messages), sessionFileName)
@@ -128,6 +150,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
    // 5. Render footer and close connection
    fmt.Fprint(w, footerHTML)
+
+   return nil
 }
 
 func main() {
@@ -176,9 +200,16 @@ func run(apiKeyFlag string) error {
    }
    apiKey := string(apiKeyBytes)
 
-   // Setup HTTP Server with a single route
+   // Setup HTTP Server
+   http.HandleFunc("/style.css", func(w http.ResponseWriter, r *http.Request) {
+      w.Header().Set("Content-Type", "text/css")
+      fmt.Fprint(w, styleCSS)
+   })
+
    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-      handleRoot(w, r, apiKey, headerHTML, footerHTML)
+      if err := handleRoot(w, r, apiKey, headerHTML, footerHTML); err != nil {
+         log.Fatalf("Handler error: %v", err)
+      }
    })
 
    port := ":8080"

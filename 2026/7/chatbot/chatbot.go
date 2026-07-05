@@ -5,6 +5,7 @@ import (
    "bytes"
    "encoding/json"
    "fmt"
+   "html"
    "log"
    "net/http"
    "strings"
@@ -13,7 +14,7 @@ import (
 const apiURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
 // processChat calls the API and streams tokens back via the onToken callback.
-func processChat(messages []Message, apiKey string, onToken func(text string, isReasoning bool)) (string, error) {
+func processChat(messages []Message, apiKey string, onToken func(text string)) (string, error) {
    payload := map[string]any{
       "model":    "glm-5.2",
       "messages": messages,
@@ -71,32 +72,54 @@ func processChat(messages []Message, apiKey string, onToken func(text string, is
          }
 
          for _, choice := range streamResp.Choices {
-            // Send reasoning tokens
+            // Send reasoning tokens wrapped in a dedicated div
             if choice.Delta.ReasoningContent != "" {
-               printedReasoning = true
-               if onToken != nil {
-                  onToken(choice.Delta.ReasoningContent, true)
+               if !printedReasoning {
+                  tag := "<div class=\"reasoning\">"
+                  if onToken != nil {
+                     onToken(tag)
+                  }
+                  fullReply += tag
+                  printedReasoning = true
                }
+
+               // We still escape reasoning content because the model assumes it's internal plain text
+               safeRc := html.EscapeString(choice.Delta.ReasoningContent)
+               if onToken != nil {
+                  onToken(safeRc)
+               }
+               fullReply += safeRc
             }
 
-            // Send and store actual content tokens
+            // Send actual content tokens (native HTML allowed)
             if choice.Delta.Content != "" {
-               // Inject a visual line break when transitioning from reasoning to the final answer
+               // Cap off the reasoning div with an <hr> separator before the final answer
                if printedReasoning && !transitionedToContent {
+                  tag := "</div><hr>"
                   if onToken != nil {
-                     onToken("\n\n", false)
+                     onToken(tag)
                   }
+                  fullReply += tag
                   transitionedToContent = true
                }
 
                content := choice.Delta.Content
                if onToken != nil {
-                  onToken(content, false)
+                  onToken(content)
                }
                fullReply += content
             }
          }
       }
+   }
+
+   // Just in case it stopped generating before answering, close the reasoning div
+   if printedReasoning && !transitionedToContent {
+      tag := "</div>"
+      if onToken != nil {
+         onToken(tag)
+      }
+      fullReply += tag
    }
 
    if err := scanner.Err(); err != nil {
