@@ -52,7 +52,7 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
 
    var printedReasoning bool
    var transitionedToContent bool
-   md := &Markdown{} // Stateful stream parser
+   md := &Markdown{}
 
    scanner := bufio.NewScanner(resp.Body)
 
@@ -84,7 +84,6 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
 
                fullReasoning.WriteString(choice.Delta.ReasoningContent)
 
-               // Reasoning is plain text, so we stream it directly
                safeRc := html.EscapeString(choice.Delta.ReasoningContent)
                safeRc = strings.ReplaceAll(safeRc, "\n", "<br>")
                if onToken != nil {
@@ -103,7 +102,6 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                fullContent.WriteString(choice.Delta.Content)
                contentBuf += choice.Delta.Content
 
-               // Line-buffer the content so Markdown can parse headers/blocks securely
                for {
                   idx := strings.IndexByte(contentBuf, '\n')
                   if idx == -1 {
@@ -112,14 +110,16 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                   lineChunk := contentBuf[:idx]
                   contentBuf = contentBuf[idx+1:]
 
-                  htmlStr := md.RenderLine(lineChunk)
-                  if md.inCodeBlock {
-                     if onToken != nil {
-                        onToken(htmlStr + "\n")
-                     }
-                  } else {
-                     if onToken != nil {
-                        onToken(htmlStr + "<br>")
+                  htmlStr, needsBreak := md.RenderLine(lineChunk)
+
+                  if onToken != nil {
+                     onToken(htmlStr)
+                     if needsBreak {
+                        if md.inCodeBlock {
+                           onToken("\n")
+                        } else {
+                           onToken("<br>")
+                        }
                      }
                   }
                }
@@ -134,12 +134,18 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                transitionedToContent = true
             }
 
-            // Flush whatever is left in the buffer before stream closes
+            // Flush leftover buffer safely
             if contentBuf != "" {
+               htmlStr, _ := md.RenderLine(contentBuf)
                if onToken != nil {
-                  onToken(md.RenderLine(contentBuf))
+                  onToken(htmlStr)
                }
                contentBuf = ""
+            }
+            if md.inList {
+               if onToken != nil {
+                  onToken("</ul>")
+               }
             }
             if md.inCodeBlock {
                if onToken != nil {
@@ -159,15 +165,20 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
       }
    }
 
-   // Fallback closures if stream stopped abruptly
    if printedReasoning && !transitionedToContent {
       if onToken != nil {
          onToken(`</div>`)
       }
    }
    if contentBuf != "" {
+      htmlStr, _ := md.RenderLine(contentBuf)
       if onToken != nil {
-         onToken(md.RenderLine(contentBuf))
+         onToken(htmlStr)
+      }
+   }
+   if md.inList {
+      if onToken != nil {
+         onToken("</ul>")
       }
    }
    if md.inCodeBlock {
@@ -183,7 +194,6 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
    return fullReasoning.String(), fullContent.String(), nil
 }
 
-// Note: ReasoningContent added so HTML structure isn't saved to DB
 type Message struct {
    Role             string `json:"role"`
    Content          string `json:"content"`
