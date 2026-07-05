@@ -13,6 +13,9 @@ import (
 
 const sessionFileName = "session.json"
 
+//go:embed favicon.svg
+var faviconSVG string
+
 //go:embed index.html
 var indexHTML string
 
@@ -69,6 +72,12 @@ func run(apiKeyFlag string) error {
    http.HandleFunc("/style.css", func(w http.ResponseWriter, r *http.Request) {
       w.Header().Set("Content-Type", "text/css")
       fmt.Fprint(w, styleCSS)
+   })
+
+   // Serve the favicon
+   http.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+      w.Header().Set("Content-Type", "image/svg+xml")
+      fmt.Fprint(w, faviconSVG)
    })
 
    // Setup HTTP Server with the main chat route

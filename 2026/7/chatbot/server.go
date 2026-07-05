@@ -6,6 +6,7 @@ import (
    "html"
    "io"
    "log"
+   "mime/multipart"
    "net/http"
    "os"
    "strings"
@@ -13,11 +14,6 @@ import (
 
 // handleRoot handles rendering the page (GET) and streaming new responses (POST)
 func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, footerHTML string) error {
-   if r.URL.Path != "/" {
-      http.NotFound(w, r)
-      return nil
-   }
-
    // 1. Load existing session
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
@@ -46,29 +42,14 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
       combinedInput := userText
 
       if files := r.MultipartForm.File["files"]; len(files) > 0 {
-         // Process files immediately without adding manual <br> tags.
-         // CSS margins will handle the spacing cleanly.
          for _, fileHeader := range files {
-            file, err := fileHeader.Open()
+            fileChunk, err := processUploadedFile(fileHeader)
             if err != nil {
-               return fmt.Errorf("error opening uploaded file %s: %w", fileHeader.Filename, err)
+               return err
             }
 
-            fileData, err := io.ReadAll(file)
-            if err != nil {
-               file.Close() // Clean up before returning error
-               return fmt.Errorf("error reading uploaded file %s: %w", fileHeader.Filename, err)
-            }
-
-            if err := file.Close(); err != nil {
-               return fmt.Errorf("error closing uploaded file %s: %w", fileHeader.Filename, err)
-            }
-
-            // Wrap file contents in an HTML <details> block
-            safeData := html.EscapeString(string(fileData))
-            safeName := html.EscapeString(fileHeader.Filename)
-
-            combinedInput += fmt.Sprintf("<details><summary>File: %s</summary><pre><code>%s</code></pre></details>", safeName, safeData)
+            // Append directly. CSS margins will handle the spacing cleanly.
+            combinedInput += fileChunk
          }
       }
 
@@ -141,4 +122,24 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
    fmt.Fprint(w, footerHTML)
 
    return nil
+}
+
+// processUploadedFile opens, reads, safely closes, and formats an uploaded file into an HTML block
+func processUploadedFile(fileHeader *multipart.FileHeader) (string, error) {
+   file, err := fileHeader.Open()
+   if err != nil {
+      return "", fmt.Errorf("error opening uploaded file %s: %w", fileHeader.Filename, err)
+   }
+   defer file.Close()
+
+   fileData, err := io.ReadAll(file)
+   if err != nil {
+      return "", fmt.Errorf("error reading uploaded file %s: %w", fileHeader.Filename, err)
+   }
+
+   // Wrap file contents in an HTML <details> block
+   safeData := html.EscapeString(string(fileData))
+   safeName := html.EscapeString(fileHeader.Filename)
+
+   return fmt.Sprintf("<details><summary>File: %s</summary><pre><code>%s</code></pre></details>", safeName, safeData), nil
 }

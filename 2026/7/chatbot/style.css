@@ -20,7 +20,14 @@ body {
     max-width: 85%;
     word-wrap: break-word;
     line-height: 1.5;
-    white-space: pre-wrap;
+}
+
+.msg p:first-child, .msg ul:first-child {
+    margin-top: 0;
+}
+
+.msg p:last-child, .msg ul:last-child {
+    margin-bottom: 0;
 }
 
 .user {
@@ -55,6 +62,16 @@ body {
     margin-bottom: 15px;
 }
 
+.token-stats {
+    font-size: 0.75em;
+    color: #888;
+    margin-top: 15px;
+    padding-top: 8px;
+    border-top: 1px dashed #555;
+    text-align: right;
+    font-family: Consolas, monospace;
+}
+
 pre {
     background: #111;
     padding: 10px;
@@ -72,7 +89,7 @@ details {
     background: #222;
     padding: 10px;
     border-radius: 4px;
-    margin: 10px 0 0 0; /* Top margin spaces it from text above it. 0 bottom margin respects container padding. */
+    margin: 10px 0 0 0;
     border: 1px solid #444;
 }
 

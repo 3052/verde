@@ -11,7 +11,12 @@ import (
    "strings"
 )
 
-const apiURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+const (
+   apiURL           = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+   reasoningStart   = `<div class="reasoning">`
+   reasoningEnd     = `</div>`
+   reasoningEndLine = `</div><hr>`
+)
 
 // processChat calls the API and streams tokens back via the onToken callback.
 func processChat(messages []Message, apiKey string, onToken func(text string)) (string, error) {
@@ -19,6 +24,9 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
       "model":    "glm-5.2",
       "messages": messages,
       "stream":   true,
+      "stream_options": map[string]any{
+         "include_usage": true,
+      },
    }
 
    body, err := json.Marshal(payload)
@@ -75,11 +83,10 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
             // Send reasoning tokens wrapped in a dedicated div
             if choice.Delta.ReasoningContent != "" {
                if !printedReasoning {
-                  tag := "<div class=\"reasoning\">"
                   if onToken != nil {
-                     onToken(tag)
+                     onToken(reasoningStart)
                   }
-                  fullReply += tag
+                  fullReply += reasoningStart
                   printedReasoning = true
                }
 
@@ -95,11 +102,10 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
             if choice.Delta.Content != "" {
                // Cap off the reasoning div with an <hr> separator before the final answer
                if printedReasoning && !transitionedToContent {
-                  tag := "</div><hr>"
                   if onToken != nil {
-                     onToken(tag)
+                     onToken(reasoningEndLine)
                   }
-                  fullReply += tag
+                  fullReply += reasoningEndLine
                   transitionedToContent = true
                }
 
@@ -110,16 +116,41 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                fullReply += content
             }
          }
+
+         // Check if this chunk includes usage statistics
+         if streamResp.Usage != nil && (streamResp.Usage.TotalTokens > 0 || streamResp.Usage.PromptTokens > 0) {
+            // Cap off reasoning if the stream ended abruptly before generating standard text
+            if printedReasoning && !transitionedToContent {
+               if onToken != nil {
+                  onToken(reasoningEndLine)
+               }
+               fullReply += reasoningEndLine
+               transitionedToContent = true
+            }
+
+            stats := fmt.Sprintf(`<div class="token-stats">Tokens: %d prompt (%d cached) | %d completion | %d total</div>`,
+               streamResp.Usage.PromptTokens,
+               streamResp.Usage.PromptTokensDetails.CachedTokens,
+               streamResp.Usage.CompletionTokens,
+               streamResp.Usage.TotalTokens,
+            )
+
+            if onToken != nil {
+               onToken(stats)
+            }
+
+            // Append to fullReply so it persists in the chat history across page refreshes
+            fullReply += stats
+         }
       }
    }
 
    // Just in case it stopped generating before answering, close the reasoning div
    if printedReasoning && !transitionedToContent {
-      tag := "</div>"
       if onToken != nil {
-         onToken(tag)
+         onToken(reasoningEnd)
       }
-      fullReply += tag
+      fullReply += reasoningEnd
    }
 
    if err := scanner.Err(); err != nil {
@@ -134,6 +165,10 @@ type Message struct {
    Content string `json:"content"`
 }
 
+type PromptTokensDetails struct {
+   CachedTokens int `json:"cached_tokens"`
+}
+
 type StreamChoice struct {
    Delta StreamDelta `json:"delta"`
 }
@@ -145,4 +180,12 @@ type StreamDelta struct {
 
 type StreamResponse struct {
    Choices []StreamChoice `json:"choices"`
+   Usage   *Usage         `json:"usage,omitempty"`
+}
+
+type Usage struct {
+   PromptTokens        int                 `json:"prompt_tokens"`
+   CompletionTokens    int                 `json:"completion_tokens"`
+   TotalTokens         int                 `json:"total_tokens"`
+   PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details"`
 }
