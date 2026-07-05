@@ -20,6 +20,7 @@ body {
     max-width: 85%;
     word-wrap: break-word;
     line-height: 1.5;
+    white-space: pre-wrap;
 }
 
 .user {
@@ -71,7 +72,7 @@ details {
     background: #222;
     padding: 10px;
     border-radius: 4px;
-    margin-bottom: 10px;
+    margin: 10px 0 0 0; /* Top margin spaces it from text above it. 0 bottom margin respects container padding. */
     border: 1px solid #444;
 }
 
