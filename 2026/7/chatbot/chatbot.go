@@ -10,20 +10,17 @@ import (
    "strings"
 )
 
+// ANSI color codes for terminal output
+const (
+   colorYellow = "\033[33m"
+   colorReset  = "\033[0m"
+)
+
 const apiURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
-// processChat handles the API request and response printing.
-// It returns an error if any step of the process fails.
-func processChat(userInput, apiKey string) error {
-   if userInput == "" {
-      return fmt.Errorf("no input provided. Please use the -i or -f flag")
-   }
-
-   messages := []Message{
-      {Role: "system", Content: "You are a helpful assistant."},
-      {Role: "user", Content: userInput},
-   }
-
+// processChat handles the API request and streams the response to the terminal.
+// It now takes the full message history and returns the generated reply string.
+func processChat(messages []Message, apiKey string) (string, error) {
    // Build the raw API payload with stream set to true
    payload := map[string]any{
       "model":    "glm-5.2",
@@ -33,31 +30,33 @@ func processChat(userInput, apiKey string) error {
 
    body, err := json.Marshal(payload)
    if err != nil {
-      return fmt.Errorf("marshaling JSON payload: %w", err)
+      return "", fmt.Errorf("marshaling JSON payload: %w", err)
    }
 
    // Send direct HTTP request to Z.ai
    req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(body))
    if err != nil {
-      return fmt.Errorf("creating HTTP request: %w", err)
+      return "", fmt.Errorf("creating HTTP request: %w", err)
    }
 
    req.Header.Set("Content-Type", "application/json")
    req.Header.Set("Authorization", "Bearer "+apiKey)
    req.Header.Set("Accept", "text/event-stream")
 
-   log.Printf("Executing HTTP request to %s...\n", apiURL)
+   log.Printf("POST %s", apiURL)
    resp, err := http.DefaultClient.Do(req)
    if err != nil {
-      return fmt.Errorf("executing HTTP request: %w", err)
+      return "", fmt.Errorf("executing HTTP request: %w", err)
    }
    defer resp.Body.Close()
 
    if resp.StatusCode != http.StatusOK {
-      return fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+      return "", fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
    }
 
-   fmt.Printf("\nZ.ai:\n")
+   var fullReply string
+   var printedReasoning bool
+   var transitionedToContent bool
 
    // Read the streaming response line by line
    scanner := bufio.NewScanner(resp.Body)
@@ -71,22 +70,40 @@ func processChat(userInput, apiKey string) error {
 
       // Streaming data lines start with "data: "
       if strings.HasPrefix(line, "data: ") {
-         dataStr := strings.TrimPrefix(line, "data: ")
+         line = strings.TrimPrefix(line, "data: ")
 
          // "[DONE]" signals the end of the stream
-         if dataStr == "[DONE]" {
+         if line == "[DONE]" {
             break
          }
 
          var streamResp StreamResponse
-         if err := json.Unmarshal([]byte(dataStr), &streamResp); err != nil {
-            // If we can't parse a chunk, continue reading the rest
-            continue
+         if err := json.Unmarshal([]byte(line), &streamResp); err != nil {
+            // A complete line starting with "data: " should always be valid JSON.
+            // If it fails, return the error instead of silently ignoring it.
+            return "", fmt.Errorf("error unmarshaling stream chunk: %w\nRaw line: %s", err, line)
          }
 
-         if len(streamResp.Choices) > 0 {
-            content := streamResp.Choices[0].Delta.Content
-            fmt.Print(content)
+         // Iterate over all choices just in case the API sends multiple or none
+         for _, choice := range streamResp.Choices {
+            // Print reasoning tokens (Chain-of-Thought) in yellow if the model provides them
+            if choice.Delta.ReasoningContent != "" {
+               printedReasoning = true
+               fmt.Print(colorYellow + choice.Delta.ReasoningContent + colorReset)
+            }
+
+            // Print and save the actual final response content
+            if choice.Delta.Content != "" {
+               // If we just finished thinking, add a visual break before the final answer
+               if printedReasoning && !transitionedToContent {
+                  fmt.Print("\n\n")
+                  transitionedToContent = true
+               }
+
+               content := choice.Delta.Content
+               fmt.Print(content)
+               fullReply += content // Append to the complete string
+            }
          }
       }
    }
@@ -94,10 +111,10 @@ func processChat(userInput, apiKey string) error {
    fmt.Println() // Print a final newline when the stream is finished
 
    if err := scanner.Err(); err != nil {
-      return fmt.Errorf("error reading stream: %w", err)
+      return "", fmt.Errorf("error reading stream: %w", err)
    }
 
-   return nil
+   return fullReply, nil
 }
 
 // Structs for API interaction
@@ -111,7 +128,8 @@ type StreamChoice struct {
 }
 
 type StreamDelta struct {
-   Content string `json:"content"`
+   Content          string `json:"content"`
+   ReasoningContent string `json:"reasoning_content"`
 }
 
 // Streaming response structs

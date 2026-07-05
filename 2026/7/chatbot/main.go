@@ -1,6 +1,7 @@
 package main
 
 import (
+   "encoding/json"
    "flag"
    "fmt"
    "log"
@@ -8,11 +9,20 @@ import (
    "path/filepath"
 )
 
+const sessionFileName = "session.json"
+
 func main() {
-   var filesFlag stringSlice
+   // Set log output to show only the time (omits the date)
+   log.SetFlags(log.Ltime)
+
+   var filesFlag []string
 
    // Define and parse command-line flags
-   flag.Var(&filesFlag, "f", "Include a file (can be used multiple times)")
+   flag.Func("f", "Include a file (can be used multiple times)", func(value string) error {
+      filesFlag = append(filesFlag, value)
+      return nil
+   })
+
    inputFlag := flag.String("i", "", "Provide input text directly via flag")
    apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your configuration directory")
    flag.Parse()
@@ -30,35 +40,30 @@ func main() {
 
 // run handles the configuration loading/saving and orchestrates the chat process
 func run(inputFlag, apiKeyFlag string, filesFlag []string) error {
-   // Get the OS-specific user configuration directory
+   // Get the OS-specific user configuration directory for the API key
    configDir, err := os.UserConfigDir()
    if err != nil {
       return fmt.Errorf("error getting user config directory: %w", err)
    }
 
-   // Use "chatbot" for the configuration folder
    appConfigDir := filepath.Join(configDir, "chatbot")
-   keyFilePath := filepath.Join(appConfigDir, "apikey")
+   keyFilePath := filepath.Join(appConfigDir, "api-key")
 
-   // If the user provided an API key flag, save it and exit
+   // If the user provided an API key flag, save it globally and exit
    if apiKeyFlag != "" {
-      // Create the directory if it doesn't exist (permissions 0700 for privacy)
       if err := os.MkdirAll(appConfigDir, 0700); err != nil {
          return fmt.Errorf("error creating config directory: %w", err)
       }
-
-      // Write the key to the file (permissions 0600 so only the user can read it)
       log.Printf("Writing API key to %s\n", keyFilePath)
       if err := os.WriteFile(keyFilePath, []byte(apiKeyFlag), 0600); err != nil {
          return fmt.Errorf("error writing API key to file: %w", err)
       }
-
-      fmt.Println("API key saved successfully.")
+      log.Println("API key saved successfully.")
       return nil
    }
 
-   // Read the API key from the config file since it was not provided via flag
-   data, err := os.ReadFile(keyFilePath)
+   // Read the API key from the global config file
+   apiKeyBytes, err := os.ReadFile(keyFilePath)
    if err != nil {
       return fmt.Errorf("API key not found. Please run with '-api-key YOUR_KEY' first")
    }
@@ -70,26 +75,47 @@ func run(inputFlag, apiKeyFlag string, filesFlag []string) error {
       if err != nil {
          return fmt.Errorf("error reading file %s: %w", file, err)
       }
-      combinedInput += fmt.Sprintf("--- File: %s ---\n%s\n\n", file, string(fileData))
+      combinedInput += fmt.Sprintf("--- File: %s ---\n%s\n\n", file, fileData)
    }
 
-   // Append the user input flag if provided
-   if inputFlag != "" {
-      combinedInput += inputFlag
+   // Append the user input flag (appending an empty string is a no-op)
+   combinedInput += inputFlag
+
+   if combinedInput == "" {
+      return fmt.Errorf("no input provided. Please use the -i or -f flag")
    }
 
-   // Pass the combined input and the API key to processChat
-   return processChat(combinedInput, string(data))
-}
+   // Load previous session history from the current directory if it exists
+   var messages []Message
+   sessionData, err := os.ReadFile(sessionFileName)
+   if err == nil {
+      if err := json.Unmarshal(sessionData, &messages); err != nil {
+         return fmt.Errorf("error parsing %s: %w", sessionFileName, err)
+      }
+   }
 
-// stringSlice allows a flag to be used multiple times
-type stringSlice []string
+   // Append the new user prompt to the history
+   messages = append(messages, Message{Role: "user", Content: combinedInput})
 
-func (s *stringSlice) Set(value string) error {
-   *s = append(*s, value)
+   // Pass the full history to processChat, which returns the assistant's reply
+   reply, err := processChat(messages, string(apiKeyBytes))
+   if err != nil {
+      return err
+   }
+
+   // Append the assistant's reply to the history
+   messages = append(messages, Message{Role: "assistant", Content: reply})
+
+   // Save the updated history back to the local session file
+   newSessionData, err := json.MarshalIndent(messages, "", " ")
+   if err != nil {
+      return fmt.Errorf("error marshaling session data: %w", err)
+   }
+
+   log.Printf("Writing %d items to %s", len(messages), sessionFileName)
+   if err := os.WriteFile(sessionFileName, newSessionData, 0644); err != nil {
+      return fmt.Errorf("error writing session file: %w", err)
+   }
+
    return nil
-}
-
-func (s *stringSlice) String() string {
-   return fmt.Sprintf("%v", *s)
 }
