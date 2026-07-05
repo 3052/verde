@@ -10,18 +10,10 @@ import (
    "strings"
 )
 
-// ANSI color codes for terminal output
-const (
-   colorYellow = "\033[33m"
-   colorReset  = "\033[0m"
-)
-
 const apiURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
-// processChat handles the API request and streams the response to the terminal.
-// It now takes the full message history and returns the generated reply string.
-func processChat(messages []Message, apiKey string) (string, error) {
-   // Build the raw API payload with stream set to true
+// processChat calls the API and streams tokens back via the onToken callback.
+func processChat(messages []Message, apiKey string, onToken func(text string, isReasoning bool)) (string, error) {
    payload := map[string]any{
       "model":    "glm-5.2",
       "messages": messages,
@@ -33,7 +25,6 @@ func processChat(messages []Message, apiKey string) (string, error) {
       return "", fmt.Errorf("marshaling JSON payload: %w", err)
    }
 
-   // Send direct HTTP request to Z.ai
    req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(body))
    if err != nil {
       return "", fmt.Errorf("creating HTTP request: %w", err)
@@ -55,60 +46,46 @@ func processChat(messages []Message, apiKey string) (string, error) {
    }
 
    var fullReply string
-   var printedReasoning bool
-   var transitionedToContent bool
-
-   // Read the streaming response line by line
    scanner := bufio.NewScanner(resp.Body)
+
    for scanner.Scan() {
       line := scanner.Text()
 
-      // The API sends empty lines as spacers, ignore them
       if line == "" {
          continue
       }
 
-      // Streaming data lines start with "data: "
       if strings.HasPrefix(line, "data: ") {
          line = strings.TrimPrefix(line, "data: ")
 
-         // "[DONE]" signals the end of the stream
          if line == "[DONE]" {
             break
          }
 
          var streamResp StreamResponse
          if err := json.Unmarshal([]byte(line), &streamResp); err != nil {
-            // A complete line starting with "data: " should always be valid JSON.
-            // If it fails, return the error instead of silently ignoring it.
             return "", fmt.Errorf("error unmarshaling stream chunk: %w\nRaw line: %s", err, line)
          }
 
-         // Iterate over all choices just in case the API sends multiple or none
          for _, choice := range streamResp.Choices {
-            // Print reasoning tokens (Chain-of-Thought) in yellow if the model provides them
+            // Send reasoning tokens
             if choice.Delta.ReasoningContent != "" {
-               printedReasoning = true
-               fmt.Print(colorYellow + choice.Delta.ReasoningContent + colorReset)
+               if onToken != nil {
+                  onToken(choice.Delta.ReasoningContent, true)
+               }
             }
 
-            // Print and save the actual final response content
+            // Send and store actual content tokens
             if choice.Delta.Content != "" {
-               // If we just finished thinking, add a visual break before the final answer
-               if printedReasoning && !transitionedToContent {
-                  fmt.Print("\n\n")
-                  transitionedToContent = true
-               }
-
                content := choice.Delta.Content
-               fmt.Print(content)
-               fullReply += content // Append to the complete string
+               if onToken != nil {
+                  onToken(content, false)
+               }
+               fullReply += content
             }
          }
       }
    }
-
-   fmt.Println() // Print a final newline when the stream is finished
 
    if err := scanner.Err(); err != nil {
       return "", fmt.Errorf("error reading stream: %w", err)
@@ -117,7 +94,6 @@ func processChat(messages []Message, apiKey string) (string, error) {
    return fullReply, nil
 }
 
-// Structs for API interaction
 type Message struct {
    Role    string `json:"role"`
    Content string `json:"content"`
@@ -132,7 +108,6 @@ type StreamDelta struct {
    ReasoningContent string `json:"reasoning_content"`
 }
 
-// Streaming response structs
 type StreamResponse struct {
    Choices []StreamChoice `json:"choices"`
 }

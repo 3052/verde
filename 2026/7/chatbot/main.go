@@ -1,121 +1,173 @@
 package main
 
 import (
+   _ "embed"
    "encoding/json"
    "flag"
    "fmt"
+   "io"
    "log"
+   "net/http"
    "os"
    "path/filepath"
 )
 
 const sessionFileName = "session.json"
 
-func main() {
-   // Set log output to show only the time (omits the date)
-   log.SetFlags(log.Ltime)
+//go:embed index.html
+var indexHTML []byte
 
-   var filesFlag []string
-
-   // Define and parse command-line flags
-   flag.Func("f", "Include a file (can be used multiple times)", func(value string) error {
-      filesFlag = append(filesFlag, value)
-      return nil
-   })
-
-   inputFlag := flag.String("i", "", "Provide input text directly via flag")
-   apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your configuration directory")
-   flag.Parse()
-
-   // If no flags were provided, print usage and exit
-   if flag.NFlag() == 0 {
-      flag.Usage()
+// Handles a new message submission, file attachments, and streams the response
+func handleChat(w http.ResponseWriter, r *http.Request, apiKey string) {
+   if r.Method != http.MethodPost {
+      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
       return
    }
 
-   if err := run(*inputFlag, *apiKeyFlag, filesFlag); err != nil {
-      log.Fatal(err)
+   // Parse multipart form (up to 10MB in memory)
+   err := r.ParseMultipartForm(10 << 20)
+   if err != nil {
+      http.Error(w, "Failed to parse form", http.StatusBadRequest)
+      return
    }
+
+   userText := r.FormValue("text")
+   combinedInput := ""
+
+   // Process attached files
+   if files := r.MultipartForm.File["files"]; len(files) > 0 {
+      for _, fileHeader := range files {
+         file, err := fileHeader.Open()
+         if err != nil {
+            continue
+         }
+         fileData, _ := io.ReadAll(file)
+         file.Close()
+
+         if combinedInput != "" {
+            combinedInput += "\n"
+         }
+         combinedInput += fmt.Sprintf("### %s\n```\n%s\n```\n\n", fileHeader.Filename, fileData)
+      }
+   }
+
+   combinedInput += userText
+
+   if combinedInput == "" {
+      http.Error(w, "Empty input", http.StatusBadRequest)
+      return
+   }
+
+   // Load session
+   var messages []Message
+   sessionData, err := os.ReadFile(sessionFileName)
+   if err == nil {
+      json.Unmarshal(sessionData, &messages)
+   }
+   messages = append(messages, Message{Role: "user", Content: combinedInput})
+
+   // Setup streaming headers
+   w.Header().Set("Content-Type", "application/json")
+   w.Header().Set("Cache-Control", "no-cache")
+   w.Header().Set("Connection", "keep-alive")
+   flusher, ok := w.(http.Flusher)
+   if !ok {
+      http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+      return
+   }
+
+   // Callback to push JSON chunks to the browser
+   onToken := func(text string, isReasoning bool) {
+      chunk := map[string]any{
+         "text":         text,
+         "is_reasoning": isReasoning,
+      }
+      b, _ := json.Marshal(chunk)
+      fmt.Fprintf(w, "%s\n", b)
+      flusher.Flush()
+   }
+
+   // Call API
+   reply, err := processChat(messages, apiKey, onToken)
+   if err != nil {
+      log.Printf("API Error: %v", err)
+      return
+   }
+
+   // Save session
+   messages = append(messages, Message{Role: "assistant", Content: reply})
+   newSessionData, _ := json.MarshalIndent(messages, "", " ")
+   os.WriteFile(sessionFileName, newSessionData, 0644)
 }
 
-// run handles the configuration loading/saving and orchestrates the chat process
-func run(inputFlag, apiKeyFlag string, filesFlag []string) error {
-   // Get the OS-specific user configuration directory for the API key
+// Returns the current session history as JSON
+func handleGetSession(w http.ResponseWriter, r *http.Request) {
+   sessionData, err := os.ReadFile(sessionFileName)
+   if err != nil {
+      if os.IsNotExist(err) {
+         w.Write([]byte("[]"))
+         return
+      }
+      http.Error(w, err.Error(), http.StatusInternalServerError)
+      return
+   }
+   w.Header().Set("Content-Type", "application/json")
+   w.Write(sessionData)
+}
+
+// Serves the frontend HTML/JS interface
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+   if r.URL.Path != "/" {
+      http.NotFound(w, r)
+      return
+   }
+   w.Header().Set("Content-Type", "text/html")
+   w.Write(indexHTML)
+}
+
+func main() {
+   log.SetFlags(log.Ltime)
+
+   apiKeyFlag := flag.String("api-key", "", "Save the provided API key to your configuration directory")
+   flag.Parse()
+
    configDir, err := os.UserConfigDir()
    if err != nil {
-      return fmt.Errorf("error getting user config directory: %w", err)
+      log.Fatalf("error getting user config directory: %v", err)
    }
 
    appConfigDir := filepath.Join(configDir, "chatbot")
    keyFilePath := filepath.Join(appConfigDir, "api-key")
 
    // If the user provided an API key flag, save it globally and exit
-   if apiKeyFlag != "" {
+   if *apiKeyFlag != "" {
       if err := os.MkdirAll(appConfigDir, 0700); err != nil {
-         return fmt.Errorf("error creating config directory: %w", err)
+         log.Fatalf("error creating config directory: %v", err)
       }
-      log.Printf("Writing API key to %s\n", keyFilePath)
-      if err := os.WriteFile(keyFilePath, []byte(apiKeyFlag), 0600); err != nil {
-         return fmt.Errorf("error writing API key to file: %w", err)
+      if err := os.WriteFile(keyFilePath, []byte(*apiKeyFlag), 0600); err != nil {
+         log.Fatalf("error writing API key to file: %v", err)
       }
       log.Println("API key saved successfully.")
-      return nil
+      return
    }
 
    // Read the API key from the global config file
    apiKeyBytes, err := os.ReadFile(keyFilePath)
    if err != nil {
-      return fmt.Errorf("API key not found. Please run with '-api-key YOUR_KEY' first")
+      log.Fatalf("API key not found. Please run with '-api-key YOUR_KEY' first")
    }
+   apiKey := string(apiKeyBytes)
 
-   // Read and combine all provided files
-   var combinedInput string
-   for _, file := range filesFlag {
-      fileData, err := os.ReadFile(file)
-      if err != nil {
-         return fmt.Errorf("error reading file %s: %w", file, err)
-      }
-      combinedInput += fmt.Sprintf("--- File: %s ---\n%s\n\n", file, fileData)
+   // Setup HTTP Server
+   http.HandleFunc("/", handleIndex)
+   http.HandleFunc("/api/session", handleGetSession)
+   http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
+      handleChat(w, r, apiKey)
+   })
+
+   port := ":8080"
+   log.Printf("Starting local server at http://localhost%s", port)
+   if err := http.ListenAndServe(port, nil); err != nil {
+      log.Fatal(err)
    }
-
-   // Append the user input flag (appending an empty string is a no-op)
-   combinedInput += inputFlag
-
-   if combinedInput == "" {
-      return fmt.Errorf("no input provided. Please use the -i or -f flag")
-   }
-
-   // Load previous session history from the current directory if it exists
-   var messages []Message
-   sessionData, err := os.ReadFile(sessionFileName)
-   if err == nil {
-      if err := json.Unmarshal(sessionData, &messages); err != nil {
-         return fmt.Errorf("error parsing %s: %w", sessionFileName, err)
-      }
-   }
-
-   // Append the new user prompt to the history
-   messages = append(messages, Message{Role: "user", Content: combinedInput})
-
-   // Pass the full history to processChat, which returns the assistant's reply
-   reply, err := processChat(messages, string(apiKeyBytes))
-   if err != nil {
-      return err
-   }
-
-   // Append the assistant's reply to the history
-   messages = append(messages, Message{Role: "assistant", Content: reply})
-
-   // Save the updated history back to the local session file
-   newSessionData, err := json.MarshalIndent(messages, "", " ")
-   if err != nil {
-      return fmt.Errorf("error marshaling session data: %w", err)
-   }
-
-   log.Printf("Writing %d items to %s", len(messages), sessionFileName)
-   if err := os.WriteFile(sessionFileName, newSessionData, 0644); err != nil {
-      return fmt.Errorf("error writing session file: %w", err)
-   }
-
-   return nil
 }
