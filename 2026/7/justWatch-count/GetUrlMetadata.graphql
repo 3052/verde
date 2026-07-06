@@ -1,0 +1,5 @@
+query GetUrlMetadata($fullPath: String!, $site: String) {
+  urlV2(fullPath: $fullPath, site: $site) {
+    locale
+  }
+}

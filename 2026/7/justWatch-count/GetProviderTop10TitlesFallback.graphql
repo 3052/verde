@@ -1,0 +1,15 @@
+query GetProviderTop10TitlesFallback(
+  $country: Country!
+  $popularTitlesFilter: TitleFilter
+  $popularTitlesSortBy: PopularTitlesSorting!
+  $first: Int!
+) {
+  popularTitles(
+    country: $country
+    filter: $popularTitlesFilter
+    first: $first
+    sortBy: $popularTitlesSortBy
+  ) {
+    totalCount
+  }
+}

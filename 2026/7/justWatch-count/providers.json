@@ -1,0 +1,90 @@
+[
+   {
+      "path": "/be/plateforme/rtbf-auvio",
+      "date": "2024-06-07"
+   },
+   {
+      "path": "/br/provedor/oldflix",
+      "date": "2026-04-05"
+   },
+   {
+      "path": "/ca/provider/crave",
+      "date": "2026-03-23"
+   },
+   {
+      "path": "/cz/poskytovatel/canal-plus",
+      "date": "2025-03-25"
+   },
+   {
+      "path": "/fr/plateforme/molotov-tv",
+      "date": "2025-03-27"
+   },
+   {
+      "path": "/nl/provider/cinemember",
+      "date": "2024-05-12"
+   },
+   {
+      "path": "/uk/provider/itvx",
+      "date": "2024-10-24"
+   },
+   {
+      "path": "/uk/provider/rakuten-tv",
+      "date": "2024-05-23"
+   },
+   {
+      "path": "/us/provider/amazon-prime-video",
+      "date": "2026-06-28"
+   },
+   {
+      "path": "/us/provider/amc-plus",
+      "date": "2022-05-27"
+   },
+   {
+      "path": "/us/provider/criterion-channel",
+      "date": "2024-05-19"
+   },
+   {
+      "path": "/us/provider/disney-plus",
+      "date": "2026-01-11"
+   },
+   {
+      "path": "/us/provider/hbo-max",
+      "date": "2024-06-16"
+   },
+   {
+      "path": "/us/provider/hulu",
+      "date": "2023-11-14"
+   },
+   {
+      "path": "/us/provider/kanopy",
+      "date": "2025-01-23"
+   },
+   {
+      "path": "/us/provider/mubi",
+      "date": "2024-02-20"
+   },
+   {
+      "path": "/us/provider/nbc",
+      "date": "2021-12-04"
+   },
+   {
+      "path": "/us/provider/paramount-plus-premium",
+      "date": "2022-03-09"
+   },
+   {
+      "path": "/us/provider/peacock",
+      "date": "2026-02-14"
+   },
+   {
+      "path": "/us/provider/pluto-tv",
+      "date": "2024-04-20"
+   },
+   {
+      "path": "/us/provider/the-roku-channel",
+      "date": "2022-05-05"
+   },
+   {
+      "path": "/us/provider/tubi-tv",
+      "date": "2026-06-28"
+   }
+]
