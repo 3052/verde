@@ -1,0 +1,17 @@
+query GetUrlTitleDetails(
+   $fullPath: String!
+   $country: Country!
+   $platform: Platform! = WEB
+) {
+   url(fullPath: $fullPath) {
+      node {
+         ... on MovieOrShowOrSeason {
+            offers(country: $country, platform: $platform) {
+               elementCount
+               monetizationType
+               standardWebURL
+            }
+         }
+      }
+   }
+}
