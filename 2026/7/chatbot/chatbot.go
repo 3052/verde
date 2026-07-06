@@ -5,6 +5,7 @@ import (
    "bytes"
    "encoding/json"
    "fmt"
+   "io"
    "log"
    "net/http"
    "strings"
@@ -12,7 +13,8 @@ import (
 
 const apiURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
-func processChat(messages []Message, apiKey string, onToken func(text string)) (string, string, error) {
+// buildAPIRequest constructs the JSON payload and HTTP headers.
+func buildAPIRequest(messages []Message, apiKey string) (*http.Request, error) {
    payload := map[string]any{
       "model":          "glm-5.2",
       "messages":       messages,
@@ -22,191 +24,160 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
 
    body, err := json.Marshal(payload)
    if err != nil {
-      return "", "", fmt.Errorf("marshaling JSON payload: %w", err)
+      return nil, fmt.Errorf("marshaling JSON payload: %w", err)
    }
 
    req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(body))
    if err != nil {
-      return "", "", fmt.Errorf("creating HTTP request: %w", err)
+      return nil, fmt.Errorf("creating HTTP request: %w", err)
    }
 
    req.Header.Set("Content-Type", "application/json")
    req.Header.Set("Authorization", "Bearer "+apiKey)
    req.Header.Set("Accept", "text/event-stream")
+   return req, nil
+}
 
-   log.Printf("POST %s", apiURL)
-   resp, err := http.DefaultClient.Do(req)
-   if err != nil {
-      return "", "", fmt.Errorf("executing HTTP request: %w", err)
-   }
-   defer resp.Body.Close()
-
-   if resp.StatusCode != http.StatusOK {
-      return "", "", fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
-   }
-
-   var fullReasoning strings.Builder
-   var fullContent strings.Builder
-   var reasoningBuf string
-   var contentBuf string
-
-   var printedReasoning bool
-   var transitionedToContent bool
-
-   reasoningMd := &Markdown{}
-   contentMd := &Markdown{}
-
-   scanner := bufio.NewScanner(resp.Body)
-
-   for scanner.Scan() {
-      line := scanner.Text()
-      if line == "" {
-         continue
+// flushBuffers processes completed lines through the Markdown engine.
+func flushBuffers(buf *string, md *Markdown, onToken func(string)) {
+   for {
+      idx := strings.IndexByte(*buf, '\n')
+      if idx == -1 {
+         break
       }
-
-      if strings.HasPrefix(line, "data: ") {
-         line = strings.TrimPrefix(line, "data: ")
-         if line == "[DONE]" {
-            break
-         }
-
-         var streamResp StreamResponse
-         if err := json.Unmarshal([]byte(line), &streamResp); err != nil {
-            return "", "", fmt.Errorf("error unmarshaling stream chunk: %w\nRaw line: %s", err, line)
-         }
-
-         for _, choice := range streamResp.Choices {
-            // Stream and parse Reasoning strictly through Markdown Engine
-            if choice.Delta.ReasoningContent != "" {
-               if !printedReasoning {
-                  if onToken != nil {
-                     onToken(`<div class="reasoning">`)
-                  }
-                  printedReasoning = true
-               }
-
-               fullReasoning.WriteString(choice.Delta.ReasoningContent)
-               reasoningBuf += choice.Delta.ReasoningContent
-
-               for {
-                  idx := strings.IndexByte(reasoningBuf, '\n')
-                  if idx == -1 {
-                     break
-                  }
-                  lineChunk := reasoningBuf[:idx]
-                  reasoningBuf = reasoningBuf[idx+1:]
-                  if onToken != nil {
-                     onToken(reasoningMd.RenderLine(lineChunk))
-                  }
-               }
-            }
-
-            // Stream and parse Content strictly through Markdown Engine
-            if choice.Delta.Content != "" {
-               if printedReasoning && !transitionedToContent {
-                  if onToken != nil {
-                     onToken(`</div><hr>`)
-                  }
-                  transitionedToContent = true
-               }
-
-               fullContent.WriteString(choice.Delta.Content)
-               contentBuf += choice.Delta.Content
-
-               for {
-                  idx := strings.IndexByte(contentBuf, '\n')
-                  if idx == -1 {
-                     break
-                  }
-                  lineChunk := contentBuf[:idx]
-                  contentBuf = contentBuf[idx+1:]
-                  if onToken != nil {
-                     onToken(contentMd.RenderLine(lineChunk))
-                  }
-               }
-            }
-         }
-
-         if streamResp.Usage != nil && streamResp.Usage.PromptTokens > 0 {
-            // Flush remaining reasoning buffers
-            if printedReasoning && !transitionedToContent {
-               if reasoningBuf != "" {
-                  if onToken != nil {
-                     onToken(reasoningMd.RenderLine(reasoningBuf))
-                  }
-                  reasoningBuf = ""
-               }
-               if reasoningMd.inList {
-                  if onToken != nil {
-                     onToken("</ul>")
-                  }
-               }
-               if reasoningMd.inCodeBlock {
-                  if onToken != nil {
-                     onToken("</pre>")
-                  }
-               }
-               if onToken != nil {
-                  onToken(`</div><hr>`)
-               }
-               transitionedToContent = true
-            }
-
-            // Flush remaining content buffers
-            if contentBuf != "" {
-               if onToken != nil {
-                  onToken(contentMd.RenderLine(contentBuf))
-               }
-               contentBuf = ""
-            }
-            if contentMd.inList {
-               if onToken != nil {
-                  onToken("</ul>")
-               }
-            }
-            if contentMd.inCodeBlock {
-               if onToken != nil {
-                  onToken("</pre>")
-               }
-            }
-
-            stats := fmt.Sprintf(`<div class="token-stats">Input Tokens: %d (%d cached)</div>`,
-               streamResp.Usage.PromptTokens,
-               streamResp.Usage.PromptTokensDetails.CachedTokens,
-            )
-
-            if onToken != nil {
-               onToken(stats)
-            }
-         }
-      }
-   }
-
-   // Safety closures if stream stops abruptly
-   if printedReasoning && !transitionedToContent {
+      lineChunk := (*buf)[:idx]
+      *buf = (*buf)[idx+1:]
       if onToken != nil {
-         onToken(`</div>`)
+         onToken(md.RenderLine(lineChunk))
       }
    }
-   if contentBuf != "" {
+}
+
+// flushRemaining safely closes any hanging Markdown tags when the stream stops.
+func flushRemaining(buf *string, md *Markdown, onToken func(string)) {
+   if *buf != "" {
       if onToken != nil {
-         onToken(contentMd.RenderLine(contentBuf))
+         onToken(md.RenderLine(*buf))
       }
+      *buf = ""
    }
-   if contentMd.inList {
+   if md.inList {
       if onToken != nil {
          onToken("</ul>")
       }
    }
-   if contentMd.inCodeBlock {
+   if md.inCodeBlock {
       if onToken != nil {
          onToken("</pre>")
       }
    }
+}
 
-   if err := scanner.Err(); err != nil {
-      return "", "", fmt.Errorf("error reading stream: %w", err)
+// processChat orchestrates the API request and parses the resulting stream.
+func processChat(messages []Message, apiKey string, onToken func(text string)) (Message, error) {
+   req, err := buildAPIRequest(messages, apiKey)
+   if err != nil {
+      return Message{}, err
    }
 
-   return fullReasoning.String(), fullContent.String(), nil
+   log.Printf("POST %s", apiURL)
+   resp, err := http.DefaultClient.Do(req)
+   if err != nil {
+      return Message{}, fmt.Errorf("executing HTTP request: %w", err)
+   }
+   defer resp.Body.Close()
+
+   if resp.StatusCode != http.StatusOK {
+      return Message{}, fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+   }
+
+   return consumeStream(resp.Body, onToken)
+}
+
+// consumeStream reads the SSE connection and processes tokens via the Markdown state machines.
+func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
+   var fullReasoning, fullContent strings.Builder
+   var rBuf, cBuf string
+   var printedR, printedC bool
+
+   rMd, cMd := &Markdown{}, &Markdown{}
+   scanner := bufio.NewScanner(body)
+
+   for scanner.Scan() {
+      line := scanner.Text()
+      if line == "" || !strings.HasPrefix(line, "data: ") {
+         continue
+      }
+
+      line = strings.TrimPrefix(line, "data: ")
+      if line == "[DONE]" {
+         break
+      }
+
+      var sr StreamResponse
+      if err := json.Unmarshal([]byte(line), &sr); err != nil {
+         return Message{}, fmt.Errorf("error unmarshaling stream chunk: %w\nRaw: %s", err, line)
+      }
+
+      for _, choice := range sr.Choices {
+         if rc := choice.Delta.ReasoningContent; rc != "" {
+            if !printedR {
+               if onToken != nil {
+                  onToken(`<div class="reasoning">`)
+               }
+               printedR = true
+            }
+            fullReasoning.WriteString(rc)
+            rBuf += rc
+            flushBuffers(&rBuf, rMd, onToken)
+         }
+
+         if c := choice.Delta.Content; c != "" {
+            if printedR && !printedC {
+               if onToken != nil {
+                  onToken(`</div><hr>`)
+               }
+               printedC = true
+            }
+            fullContent.WriteString(c)
+            cBuf += c
+            flushBuffers(&cBuf, cMd, onToken)
+         }
+      }
+
+      if sr.Usage != nil && sr.Usage.PromptTokens > 0 {
+         if printedR && !printedC {
+            flushRemaining(&rBuf, rMd, onToken)
+            if onToken != nil {
+               onToken(`</div><hr>`)
+            }
+            printedC = true
+         }
+
+         flushRemaining(&cBuf, cMd, onToken)
+
+         stats := fmt.Sprintf(`<div class="token-stats">Input Tokens: %d (%d cached)</div>`,
+            sr.Usage.PromptTokens, sr.Usage.PromptTokensDetails.CachedTokens)
+         if onToken != nil {
+            onToken(stats)
+         }
+      }
+   }
+
+   if printedR && !printedC {
+      if onToken != nil {
+         onToken(`</div>`)
+      }
+   }
+   flushRemaining(&cBuf, cMd, onToken)
+
+   if err := scanner.Err(); err != nil {
+      return Message{}, fmt.Errorf("error reading stream: %w", err)
+   }
+
+   return Message{
+      Role:             "assistant",
+      Content:          fullContent.String(),
+      ReasoningContent: fullReasoning.String(),
+   }, nil
 }

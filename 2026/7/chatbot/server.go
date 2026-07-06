@@ -81,18 +81,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
          }
       }
 
-      replyReasoning, replyContent, err := processChat(messages, apiKey, onToken)
+      // Receives a clean Message struct
+      replyMsg, err := processChat(messages, apiKey, onToken)
       if err != nil {
          return fmt.Errorf("API error: %w", err)
       }
 
       fmt.Fprintln(w, "</div>")
 
-      messages = append(messages, Message{
-         Role:             "assistant",
-         Content:          replyContent,
-         ReasoningContent: replyReasoning,
-      })
+      messages = append(messages, replyMsg)
 
       newSessionData, err := json.MarshalIndent(messages, "", " ")
       if err != nil {
