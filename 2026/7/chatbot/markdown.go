@@ -5,11 +5,26 @@ import (
    "strings"
 )
 
-// Markdown is a stateful parser used for both history and live-streaming chunks
+func isNumberedList(s string) bool {
+   idx := strings.Index(s, ". ")
+   if idx > 0 && idx <= 3 {
+      for i := 0; i < idx; i++ {
+         if s[i] < '0' || s[i] > '9' {
+            return false
+         }
+      }
+      return true
+   }
+   return false
+}
+
+// Markdown is a stateful parser used for history and live-streaming chunks
 type Markdown struct {
    inCodeBlock bool
    inList      bool
-   hasContent  bool
+   prevBlock   bool
+   wantsBreak  bool
+   hasText     bool
 }
 
 // Render processes a full historical message block
@@ -17,20 +32,10 @@ func (m *Markdown) Render(raw string) string {
    var out strings.Builder
    lines := strings.Split(raw, "\n")
 
-   for i, line := range lines {
-      htmlStr, needsBreak := m.RenderLine(line)
-      out.WriteString(htmlStr)
-
-      if i < len(lines)-1 && needsBreak {
-         if m.inCodeBlock {
-            out.WriteString("\n")
-         } else {
-            out.WriteString("<br>")
-         }
-      }
+   for _, line := range lines {
+      out.WriteString(m.RenderLine(line))
    }
 
-   // Auto-close open unclosed blocks
    if m.inList {
       out.WriteString("</ul>")
    }
@@ -41,68 +46,107 @@ func (m *Markdown) Render(raw string) string {
    return out.String()
 }
 
-// RenderLine processes a single buffered line of Markdown.
-// It returns the HTML string and a boolean indicating if a line break (<br> or \n) should follow.
-func (m *Markdown) RenderLine(line string) (string, bool) {
+// RenderLine processes a single buffered line of Markdown into clean HTML
+func (m *Markdown) RenderLine(line string) string {
    trimmed := strings.TrimSpace(line)
+   var out strings.Builder
 
-   if trimmed != "" {
-      m.hasContent = true
-   }
+   isListItem := strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "- ") || isNumberedList(trimmed)
 
-   var prefix string
-   isListItem := strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "- ")
-
-   // Close an active list if the current line is not a list item
+   // Close an active list if the current line is not a list item or is empty
    if m.inList && !isListItem && !m.inCodeBlock {
       m.inList = false
-      prefix = "</ul>"
+      out.WriteString("</ul>")
+      m.prevBlock = true
    }
 
    // 1. Check for code block toggles
    if strings.HasPrefix(trimmed, "```") {
       m.inCodeBlock = !m.inCodeBlock
       if m.inCodeBlock {
-         return prefix + "<pre>", false
+         out.WriteString("<pre>")
+      } else {
+         out.WriteString("</pre>")
       }
-      return prefix + "</pre>", false
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    }
 
-   // 2. Safely escape code lines
+   // 2. Safely escape code lines natively
    if m.inCodeBlock {
-      return prefix + html.EscapeString(line), true
+      out.WriteString(html.EscapeString(line) + "\n")
+      return out.String()
    }
 
-   // 3. Horizontal Rule
+   // 3. Empty lines act as spacing markers, not literal breaks
+   if trimmed == "" {
+      m.wantsBreak = true
+      return out.String()
+   }
+
+   // 4. Horizontal Rule
    if trimmed == "---" || trimmed == "***" {
-      return prefix + "<hr>", false
+      out.WriteString("<hr>")
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    }
 
-   // 4. Headers
+   // 5. Headers
    if strings.HasPrefix(trimmed, "### ") {
-      return prefix + "<h3>" + m.parseInline(strings.TrimPrefix(trimmed, "### ")) + "</h3>", false
+      out.WriteString("<h3>" + m.parseInline(strings.TrimPrefix(trimmed, "### ")) + "</h3>")
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    } else if strings.HasPrefix(trimmed, "## ") {
-      return prefix + "<h2>" + m.parseInline(strings.TrimPrefix(trimmed, "## ")) + "</h2>", false
+      out.WriteString("<h2>" + m.parseInline(strings.TrimPrefix(trimmed, "## ")) + "</h2>")
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    } else if strings.HasPrefix(trimmed, "# ") {
-      return prefix + "<h1>" + m.parseInline(strings.TrimPrefix(trimmed, "# ")) + "</h1>", false
+      out.WriteString("<h1>" + m.parseInline(strings.TrimPrefix(trimmed, "# ")) + "</h1>")
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    }
 
-   // 5. List Items
+   // 6. List Items
    if isListItem {
       if !m.inList {
          m.inList = true
-         prefix += "<ul>"
+         out.WriteString("<ul>")
       }
-      return prefix + "<li>" + m.parseInline(trimmed[2:]) + "</li>", false
+
+      content := trimmed
+      if strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "- ") {
+         content = trimmed[2:]
+      } else {
+         idx := strings.Index(trimmed, ". ")
+         if idx != -1 {
+            content = trimmed[idx+2:]
+         }
+      }
+      out.WriteString("<li>" + m.parseInline(content) + "</li>")
+      m.prevBlock = true
+      m.wantsBreak = false
+      return out.String()
    }
 
-   // 6. Normal text lines
-   // Swallow empty newlines if the AI hasn't started generating actual content yet
-   if trimmed == "" && !m.hasContent {
-      return "", false
+   // 7. Normal text (Smart Line Breaks)
+   if !m.prevBlock {
+      if m.wantsBreak {
+         out.WriteString("<br><br>")
+      } else if m.hasText {
+         out.WriteString("<br>")
+      }
    }
 
-   return prefix + m.parseInline(line), true
+   m.prevBlock = false
+   m.wantsBreak = false
+   m.hasText = true
+   out.WriteString(m.parseInline(line))
+   return out.String()
 }
 
 func (m *Markdown) parseInline(line string) string {
@@ -126,7 +170,6 @@ func (m *Markdown) parseInline(line string) string {
       }
 
       if !inInlineCode && r == '*' {
-         // Bold (**)
          if j < len(runes)-1 && runes[j+1] == '*' {
             inBold = !inBold
             if inBold {
@@ -134,9 +177,8 @@ func (m *Markdown) parseInline(line string) string {
             } else {
                out.WriteString("</strong>")
             }
-            j++ // Skip second asterisk
+            j++
          } else {
-            // Italic (*)
             inItalic = !inItalic
             if inItalic {
                out.WriteString("<em>")
@@ -163,7 +205,6 @@ func (m *Markdown) parseInline(line string) string {
       }
    }
 
-   // Auto-close inline formatting if model stopped abruptly
    if inInlineCode {
       out.WriteString("</code>")
    }

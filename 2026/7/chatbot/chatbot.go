@@ -5,7 +5,6 @@ import (
    "bytes"
    "encoding/json"
    "fmt"
-   "html"
    "log"
    "net/http"
    "strings"
@@ -48,11 +47,14 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
 
    var fullReasoning strings.Builder
    var fullContent strings.Builder
+   var reasoningBuf string
    var contentBuf string
 
    var printedReasoning bool
    var transitionedToContent bool
-   md := &Markdown{}
+
+   reasoningMd := &Markdown{}
+   contentMd := &Markdown{}
 
    scanner := bufio.NewScanner(resp.Body)
 
@@ -74,6 +76,7 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
          }
 
          for _, choice := range streamResp.Choices {
+            // Stream and parse Reasoning strictly through Markdown Engine
             if choice.Delta.ReasoningContent != "" {
                if !printedReasoning {
                   if onToken != nil {
@@ -83,14 +86,22 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                }
 
                fullReasoning.WriteString(choice.Delta.ReasoningContent)
+               reasoningBuf += choice.Delta.ReasoningContent
 
-               safeRc := html.EscapeString(choice.Delta.ReasoningContent)
-               safeRc = strings.ReplaceAll(safeRc, "\n", "<br>")
-               if onToken != nil {
-                  onToken(safeRc)
+               for {
+                  idx := strings.IndexByte(reasoningBuf, '\n')
+                  if idx == -1 {
+                     break
+                  }
+                  lineChunk := reasoningBuf[:idx]
+                  reasoningBuf = reasoningBuf[idx+1:]
+                  if onToken != nil {
+                     onToken(reasoningMd.RenderLine(lineChunk))
+                  }
                }
             }
 
+            // Stream and parse Content strictly through Markdown Engine
             if choice.Delta.Content != "" {
                if printedReasoning && !transitionedToContent {
                   if onToken != nil {
@@ -109,45 +120,51 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
                   }
                   lineChunk := contentBuf[:idx]
                   contentBuf = contentBuf[idx+1:]
-
-                  htmlStr, needsBreak := md.RenderLine(lineChunk)
-
                   if onToken != nil {
-                     onToken(htmlStr)
-                     if needsBreak {
-                        if md.inCodeBlock {
-                           onToken("\n")
-                        } else {
-                           onToken("<br>")
-                        }
-                     }
+                     onToken(contentMd.RenderLine(lineChunk))
                   }
                }
             }
          }
 
          if streamResp.Usage != nil && streamResp.Usage.PromptTokens > 0 {
+            // Flush remaining reasoning buffers
             if printedReasoning && !transitionedToContent {
+               if reasoningBuf != "" {
+                  if onToken != nil {
+                     onToken(reasoningMd.RenderLine(reasoningBuf))
+                  }
+                  reasoningBuf = ""
+               }
+               if reasoningMd.inList {
+                  if onToken != nil {
+                     onToken("</ul>")
+                  }
+               }
+               if reasoningMd.inCodeBlock {
+                  if onToken != nil {
+                     onToken("</pre>")
+                  }
+               }
                if onToken != nil {
                   onToken(`</div><hr>`)
                }
                transitionedToContent = true
             }
 
-            // Flush leftover buffer safely
+            // Flush remaining content buffers
             if contentBuf != "" {
-               htmlStr, _ := md.RenderLine(contentBuf)
                if onToken != nil {
-                  onToken(htmlStr)
+                  onToken(contentMd.RenderLine(contentBuf))
                }
                contentBuf = ""
             }
-            if md.inList {
+            if contentMd.inList {
                if onToken != nil {
                   onToken("</ul>")
                }
             }
-            if md.inCodeBlock {
+            if contentMd.inCodeBlock {
                if onToken != nil {
                   onToken("</pre>")
                }
@@ -165,23 +182,23 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
       }
    }
 
+   // Safety closures if stream stops abruptly
    if printedReasoning && !transitionedToContent {
       if onToken != nil {
          onToken(`</div>`)
       }
    }
    if contentBuf != "" {
-      htmlStr, _ := md.RenderLine(contentBuf)
       if onToken != nil {
-         onToken(htmlStr)
+         onToken(contentMd.RenderLine(contentBuf))
       }
    }
-   if md.inList {
+   if contentMd.inList {
       if onToken != nil {
          onToken("</ul>")
       }
    }
-   if md.inCodeBlock {
+   if contentMd.inCodeBlock {
       if onToken != nil {
          onToken("</pre>")
       }
@@ -192,35 +209,4 @@ func processChat(messages []Message, apiKey string, onToken func(text string)) (
    }
 
    return fullReasoning.String(), fullContent.String(), nil
-}
-
-type Message struct {
-   Role             string `json:"role"`
-   Content          string `json:"content"`
-   ReasoningContent string `json:"reasoning_content,omitempty"`
-}
-
-type PromptTokensDetails struct {
-   CachedTokens int `json:"cached_tokens"`
-}
-
-type StreamChoice struct {
-   Delta StreamDelta `json:"delta"`
-}
-
-type StreamDelta struct {
-   Content          string `json:"content"`
-   ReasoningContent string `json:"reasoning_content"`
-}
-
-type StreamResponse struct {
-   Choices []StreamChoice `json:"choices"`
-   Usage   *Usage         `json:"usage,omitempty"`
-}
-
-type Usage struct {
-   PromptTokens        int                 `json:"prompt_tokens"`
-   CompletionTokens    int                 `json:"completion_tokens"`
-   TotalTokens         int                 `json:"total_tokens"`
-   PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details"`
 }
