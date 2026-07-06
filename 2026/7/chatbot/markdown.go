@@ -21,6 +21,7 @@ func isNumberedList(s string) bool {
 // Markdown is a stateful parser used for history and live-streaming chunks
 type Markdown struct {
    inCodeBlock bool
+   codeIndent  int
    inList      bool
    prevBlock   bool
    wantsBreak  bool
@@ -62,10 +63,14 @@ func (m *Markdown) RenderLine(line string) string {
 
    // 1. Check for code block toggles
    if strings.HasPrefix(trimmed, "```") {
-      m.inCodeBlock = !m.inCodeBlock
-      if m.inCodeBlock {
+      if !m.inCodeBlock {
+         m.inCodeBlock = true
+         // Calculate how many spaces the AI indented the code block by
+         m.codeIndent = len(line) - len(strings.TrimLeft(line, " "))
          out.WriteString("<pre>")
       } else {
+         m.inCodeBlock = false
+         m.codeIndent = 0
          out.WriteString("</pre>")
       }
       m.prevBlock = true
@@ -73,9 +78,17 @@ func (m *Markdown) RenderLine(line string) string {
       return out.String()
    }
 
-   // 2. Safely escape code lines natively
+   // 2. Safely escape code lines natively and strip the base AI indentation
    if m.inCodeBlock {
-      out.WriteString(html.EscapeString(line) + "\n")
+      trimCount := 0
+      for i := 0; i < len(line); i++ {
+         if line[i] == ' ' && trimCount < m.codeIndent {
+            trimCount++
+         } else {
+            break
+         }
+      }
+      out.WriteString(html.EscapeString(line[trimCount:]) + "\n")
       return out.String()
    }
 
@@ -186,6 +199,13 @@ func (m *Markdown) parseInline(line string) string {
                out.WriteString("</em>")
             }
          }
+         continue
+      }
+
+      // Convert "->" to a right arrow, but ONLY if we are not inside an inline code snippet
+      if !inInlineCode && r == '-' && j < len(runes)-1 && runes[j+1] == '>' {
+         out.WriteString("&rarr;")
+         j++ // skip the '>'
          continue
       }
 

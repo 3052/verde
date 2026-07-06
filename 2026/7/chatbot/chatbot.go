@@ -73,29 +73,14 @@ func flushRemaining(buf *string, md *Markdown, onToken func(string)) {
    }
 }
 
-// processChat orchestrates the API request and parses the resulting stream.
-func processChat(messages []Message, apiKey string, onToken func(text string)) (Message, error) {
-   req, err := buildAPIRequest(messages, apiKey)
-   if err != nil {
-      return Message{}, err
-   }
-
-   log.Printf("POST %s", apiURL)
-   resp, err := http.DefaultClient.Do(req)
-   if err != nil {
-      return Message{}, fmt.Errorf("executing HTTP request: %w", err)
-   }
-   defer resp.Body.Close()
-
-   if resp.StatusCode != http.StatusOK {
-      return Message{}, fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
-   }
-
-   return consumeStream(resp.Body, onToken)
+type Message struct {
+   Role             string `json:"role"`
+   Content          string `json:"content"`
+   ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 // consumeStream reads the SSE connection and processes tokens via the Markdown state machines.
-func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
+func consumeStream(body io.Reader, onToken func(string)) (*Message, error) {
    var fullReasoning, fullContent strings.Builder
    var rBuf, cBuf string
    var printedR, printedC bool
@@ -116,14 +101,14 @@ func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
 
       var sr StreamResponse
       if err := json.Unmarshal([]byte(line), &sr); err != nil {
-         return Message{}, fmt.Errorf("error unmarshaling stream chunk: %w\nRaw: %s", err, line)
+         return nil, fmt.Errorf("error unmarshaling stream chunk: %w\nRaw: %s", err, line)
       }
 
       for _, choice := range sr.Choices {
          if rc := choice.Delta.ReasoningContent; rc != "" {
             if !printedR {
                if onToken != nil {
-                  onToken(`<div class="reasoning">`)
+                  onToken(`<details class="reasoning" open><summary>Thinking Process</summary>`)
                }
                printedR = true
             }
@@ -135,7 +120,7 @@ func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
          if c := choice.Delta.Content; c != "" {
             if printedR && !printedC {
                if onToken != nil {
-                  onToken(`</div><hr>`)
+                  onToken(`</details><hr>`)
                }
                printedC = true
             }
@@ -149,7 +134,7 @@ func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
          if printedR && !printedC {
             flushRemaining(&rBuf, rMd, onToken)
             if onToken != nil {
-               onToken(`</div><hr>`)
+               onToken(`</details><hr>`)
             }
             printedC = true
          }
@@ -166,18 +151,64 @@ func consumeStream(body io.Reader, onToken func(string)) (Message, error) {
 
    if printedR && !printedC {
       if onToken != nil {
-         onToken(`</div>`)
+         onToken(`</details>`)
       }
    }
    flushRemaining(&cBuf, cMd, onToken)
 
    if err := scanner.Err(); err != nil {
-      return Message{}, fmt.Errorf("error reading stream: %w", err)
+      return nil, fmt.Errorf("error reading stream: %w", err)
    }
 
-   return Message{
+   return &Message{
       Role:             "assistant",
       Content:          fullContent.String(),
       ReasoningContent: fullReasoning.String(),
    }, nil
+}
+
+// processChat orchestrates the API request and parses the resulting stream.
+func processChat(messages []Message, apiKey string, onToken func(text string)) (*Message, error) {
+   req, err := buildAPIRequest(messages, apiKey)
+   if err != nil {
+      return nil, err
+   }
+
+   log.Printf("POST %s", apiURL)
+   resp, err := http.DefaultClient.Do(req)
+   if err != nil {
+      return nil, fmt.Errorf("executing HTTP request: %w", err)
+   }
+   defer resp.Body.Close()
+
+   if resp.StatusCode != http.StatusOK {
+      return nil, fmt.Errorf("API returned non-200 status code: %d", resp.StatusCode)
+   }
+
+   return consumeStream(resp.Body, onToken)
+}
+
+type PromptTokensDetails struct {
+   CachedTokens int `json:"cached_tokens"`
+}
+
+type StreamChoice struct {
+   Delta StreamDelta `json:"delta"`
+}
+
+type StreamDelta struct {
+   Content          string `json:"content"`
+   ReasoningContent string `json:"reasoning_content"`
+}
+
+type StreamResponse struct {
+   Choices []StreamChoice `json:"choices"`
+   Usage   *Usage         `json:"usage,omitempty"`
+}
+
+type Usage struct {
+   PromptTokens        int                 `json:"prompt_tokens"`
+   CompletionTokens    int                 `json:"completion_tokens"`
+   TotalTokens         int                 `json:"total_tokens"`
+   PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details"`
 }

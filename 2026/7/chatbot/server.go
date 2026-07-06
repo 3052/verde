@@ -16,7 +16,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
    var messages []Message
    sessionData, err := os.ReadFile(sessionFileName)
    if err != nil {
-      log.Printf("error reading %s: %v", sessionFileName, err)
+      log.Println(err)
    } else if err := json.Unmarshal(sessionData, &messages); err != nil {
       return fmt.Errorf("critical error parsing %s: %w", sessionFileName, err)
    }
@@ -56,7 +56,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
          if msg.ReasoningContent != "" {
             rMd := &Markdown{}
-            fmt.Fprintf(w, `<div class="reasoning">%s</div><hr>`, rMd.Render(msg.ReasoningContent))
+            fmt.Fprintf(w, `<details class="reasoning"><summary>Thinking Process</summary>%s</details><hr>`, rMd.Render(msg.ReasoningContent))
          }
 
          cMd := &Markdown{}
@@ -81,7 +81,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
          }
       }
 
-      // Receives a clean Message struct
       replyMsg, err := processChat(messages, apiKey, onToken)
       if err != nil {
          return fmt.Errorf("API error: %w", err)
@@ -89,7 +88,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request, apiKey, headerHTML, foot
 
       fmt.Fprintln(w, "</div>")
 
-      messages = append(messages, replyMsg)
+      messages = append(messages, *replyMsg)
 
       newSessionData, err := json.MarshalIndent(messages, "", " ")
       if err != nil {

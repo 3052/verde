@@ -55,7 +55,6 @@ body {
 .reasoning {
     color: #d7ba7d;
     font-style: italic;
-    white-space: pre-wrap;
     display: block;
     border-left: 3px solid #d7ba7d;
     padding-left: 10px;
@@ -79,16 +78,21 @@ pre {
     overflow-x: auto;
     max-width: 100%;
     border: 1px solid #555;
+    
+    /* Reset inheritance so it matches main content */
+    font-style: normal;
+    color: #eee;
+    margin: 15px 0;
+    
+    /* Click any code block to select all, then Ctrl+C to copy */
+    -webkit-user-select: all;
+    user-select: all;
 }
 
 code {
     font-family: Consolas, monospace;
-}
-
-/* Click a file's code block to select all, then Ctrl+C to copy */
-details pre {
-    -webkit-user-select: all;
-    user-select: all;
+    font-style: normal;
+    color: #eee;
 }
 
 details {
