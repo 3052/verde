@@ -139,6 +139,7 @@
 
 - https://justwatch.com/us/movie/dont-look-up-2021
 - https://justwatch.com/us/movie/free-guy
+- https://justwatch.com/us/movie/house-of-gucci
 - https://justwatch.com/us/movie/pleasure-2021
 - https://justwatch.com/us/movie/red-notice
 - https://justwatch.com/us/movie/the-worst-person-in-the-world
@@ -163,6 +164,7 @@
 
 ## 2018
 
+- https://justwatch.com/us/movie/a-star-is-born-2018
 - https://justwatch.com/us/movie/bad-times-at-the-el-royale
 - https://justwatch.com/us/movie/first-man-2018
 - https://justwatch.com/us/movie/hereditary
