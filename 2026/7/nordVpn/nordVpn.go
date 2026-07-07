@@ -47,12 +47,12 @@ func getCredentials() (string, string, error) {
 
 func loadUsedServers(path string) map[string]bool {
    used := make(map[string]bool)
-   f, err := os.Open(path)
+   file, err := os.Open(path)
    if err != nil {
       return used
    }
-   defer f.Close()
-   scanner := bufio.NewScanner(f)
+   defer file.Close()
+   scanner := bufio.NewScanner(file)
    for scanner.Scan() {
       line := strings.TrimSpace(scanner.Text())
       if line != "" {
@@ -70,7 +70,9 @@ func main() {
    log.SetFlags(log.Ltime)
    refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN")
    country := flag.String("country", "", "Target country code (e.g., PL, DE, US)")
-   reset := flag.Bool("reset", false, "Reset the used-servers list for the given -country")
+   reset := flag.Bool("reset", false, "Reset the used-servers list (all countries)")
+   downloadURL := flag.String("download", "", "URL to test download speed with (required for -country)")
+   minSpeed := flag.Float64("min-speed", 2.0, "Minimum acceptable download speed in MB/s")
    flag.Parse()
 
    cacheDir, err := os.UserCacheDir()
@@ -79,7 +81,6 @@ func main() {
    }
    filePath := filepath.Join(cacheDir, "nordVpn", "nordVpn.json")
 
-   // ACTION 1: Refresh
    if *refresh {
       if err := refreshFile(filePath); err != nil {
          log.Fatalf("Refresh failed: %v", err)
@@ -87,29 +88,26 @@ func main() {
       return
    }
 
-   // ACTION 2: Reset used-servers list
    if *reset {
-      if *country == "" {
-         log.Fatalf("-reset requires -country")
-      }
-      usedPath := usedServersPath(cacheDir, *country)
+      usedPath := usedServersPath(cacheDir)
       if err := os.Remove(usedPath); err != nil && !os.IsNotExist(err) {
          log.Fatalf("Failed to reset used servers: %v", err)
       }
-      fmt.Fprintf(os.Stderr, "Reset used-servers list for %s.\n", *country)
+      fmt.Fprintf(os.Stderr, "Used-servers list reset (all countries).\n")
       return
    }
 
-   // ACTION 3: Get a country server
    if *country != "" {
-      if err := processCountryServers(filePath, cacheDir, *country); err != nil {
+      if *downloadURL == "" {
+         log.Fatalf("-country requires -download URL")
+      }
+      if err := processCountryServers(filePath, cacheDir, *country, *downloadURL, *minSpeed); err != nil {
          log.Fatalf("Error: %v", err)
       }
       return
    }
 
-   // No flags provided
-   fmt.Fprintf(os.Stderr, "Error: You must provide either -refresh or -country.\n\n")
+   fmt.Fprintf(os.Stderr, "Error: You must provide either -refresh, -reset, or -country.\n\n")
    flag.Usage()
    os.Exit(1)
 }
@@ -118,7 +116,7 @@ func main() {
 // Main processing
 // ---------------------------------------------------------------------------
 
-func processCountryServers(filePath, cacheDir, country string) error {
+func processCountryServers(filePath, cacheDir, country string, downloadURL string, minSpeedMBps float64) error {
    fileInfo, err := os.Stat(filePath)
    if err != nil {
       if os.IsNotExist(err) {
@@ -146,27 +144,27 @@ func processCountryServers(filePath, cacheDir, country string) error {
       return fmt.Errorf("no servers found for country %s", country)
    }
 
-   // Load the set of already-used server hostnames
-   usedPath := usedServersPath(cacheDir, country)
+   usedPath := usedServersPath(cacheDir)
    used := loadUsedServers(usedPath)
 
-   // Build candidate list, excluding used servers
    var candidates []*Server
-   for _, s := range filtered {
-      if !used[s.Hostname] {
-         candidates = append(candidates, s)
+   for _, server := range filtered {
+      if !used[server.Hostname] {
+         candidates = append(candidates, server)
       }
    }
 
    if len(candidates) == 0 {
       return fmt.Errorf(
-         "all %d servers for %s have been used. Run: %s -reset -country %s",
-         len(filtered), country, os.Args[0], country,
+         "all %d servers for %s have been used. Run: %s -reset",
+         len(filtered), country, os.Args[0],
       )
    }
 
-   fmt.Fprintf(os.Stderr, "Testing %d candidate server(s) for %s (%d already used)…\n\n",
-      len(candidates), country, len(used))
+   minSpeedBps := minSpeedMBps * 1024 * 1024
+
+   fmt.Fprintf(os.Stderr, "Testing %d candidate(s) for %s (%d used globally, min %.1f MB/s)…\n\n",
+      len(candidates), country, len(used), minSpeedMBps)
 
    username, password, err := getCredentials()
    if err != nil {
@@ -174,72 +172,80 @@ func processCountryServers(filePath, cacheDir, country string) error {
    }
 
    const (
-      probeTarget  = "https://api.nordvpn.com/v1/helpers/ips/echo"
-      probeTimeout = 8 * time.Second
-      goodEnough   = 1500 * time.Millisecond
+      probeTimeout   = 30 * time.Second
+      rateLimitDelay = 210 * time.Second
    )
 
-   // Track the best (lowest-latency) server that responded, in case nothing
-   // meets the goodEnough threshold.
-   var best struct {
-      server  *Server
-      latency time.Duration
-      url     string
-   }
+   var tested []string
 
-   for _, s := range candidates {
-      // Resolve the proxy hostname from technologies metadata
-      proxyHostname := s.Hostname
-      for _, tech := range s.Technologies {
-         for _, m := range tech.Metadata {
-            if m.Name == "proxy_hostname" && m.Value != "" {
-               proxyHostname = m.Value
+   for _, server := range candidates {
+      proxyHostname := server.Hostname
+      for _, technology := range server.Technologies {
+         for _, meta := range technology.Metadata {
+            if meta.Name == "proxy_hostname" && meta.Value != "" {
+               proxyHostname = meta.Value
             }
          }
       }
 
       proxyURL := url.URL{
-         Scheme: "http",
+         Scheme: "https",
          User:   url.UserPassword(username, password),
          Host:   fmt.Sprintf("%s:89", proxyHostname),
       }
 
-      latency, err := testProxy(proxyURL.String(), probeTarget, probeTimeout)
+      speedBps, rateLimited, err := testProxy(proxyURL.String(), downloadURL, probeTimeout)
+
+      // ── Handle rate-limiting: sleep and retry once ──
+      if rateLimited {
+         fmt.Fprintf(os.Stderr, "RATE  %-20s  rate-limited, waiting %s and retrying…\n", server.Name, rateLimitDelay)
+         time.Sleep(rateLimitDelay)
+
+         speedBps, rateLimited, err = testProxy(proxyURL.String(), downloadURL, probeTimeout)
+      }
+
+      // ── Still rate-limited after retry — save tested servers and exit ──
+      if rateLimited {
+         fmt.Fprintf(os.Stderr, "\nStill rate-limited after retry. Saving %d tested server(s)…\n", len(tested))
+
+         for _, hostname := range tested {
+            if saveErr := saveUsedServer(usedPath, hostname); saveErr != nil {
+               fmt.Fprintf(os.Stderr, "Warning: could not save used-server state for %s: %v\n", hostname, saveErr)
+            }
+         }
+
+         return fmt.Errorf("rate-limited by NordVPN. %d server(s) saved as tested — re-run to continue", len(tested))
+      }
+
+      // ── Handle other errors ──
       if err != nil {
-         fmt.Fprintf(os.Stderr, "SKIP  %-40s  %v\n", s.Name, err)
+         fmt.Fprintf(os.Stderr, "SKIP  %-20s  %v\n", server.Name, err)
          continue
       }
 
-      fmt.Fprintf(os.Stderr, "OK    %-40s  %s\n", s.Name, latency)
+      // ── Success — server responded ──
+      tested = append(tested, server.Hostname)
 
-      if best.server == nil || latency < best.latency {
-         best.server = s
-         best.latency = latency
-         best.url = proxyURL.String()
+      speedMB := speedBps / 1024 / 1024
+
+      if speedBps >= minSpeedBps {
+         fmt.Fprintf(os.Stderr, "PASS  %-20s  %.1f MB/s\n", server.Name, speedMB)
+
+         if err := saveUsedServer(usedPath, server.Hostname); err != nil {
+            fmt.Fprintf(os.Stderr, "Warning: could not save used-server state: %v\n", err)
+         }
+
+         fmt.Printf("name: %s\n", server.Name)
+         fmt.Printf("hostname: %s\n", server.Hostname)
+         fmt.Printf("speed_mbps: %.1f\n", speedMB)
+         fmt.Printf("url: %s\n", proxyURL.String())
+         return nil
       }
 
-      // Early exit: this server is good enough
-      if latency <= goodEnough {
-         break
-      }
+      fmt.Fprintf(os.Stderr, "FAIL  %-20s  %.1f MB/s (below %.1f MB/s)\n", server.Name, speedMB, minSpeedMBps)
    }
 
-   if best.server == nil {
-      return fmt.Errorf("no candidate server passed the proxy test")
-   }
-
-   // Mark this server as used so the next run picks a different one
-   if err := saveUsedServer(usedPath, best.server.Hostname); err != nil {
-      fmt.Fprintf(os.Stderr, "Warning: could not save used-server state: %v\n", err)
-   }
-
-   // Output the chosen server to stdout
-   fmt.Printf("name: %s\n", best.server.Name)
-   fmt.Printf("hostname: %s\n", best.server.Hostname)
-   fmt.Printf("latency_ms: %d\n", best.latency.Milliseconds())
-   fmt.Printf("url: %s\n", best.url)
-
-   return nil
+   return fmt.Errorf("no candidate server met the minimum speed of %.1f MB/s", minSpeedMBps)
 }
 
 // ---------------------------------------------------------------------------
@@ -247,15 +253,15 @@ func processCountryServers(filePath, cacheDir, country string) error {
 // ---------------------------------------------------------------------------
 
 func refreshFile(filePath string) error {
-   u := url.URL{
+   endpoint := url.URL{
       Scheme:   "https",
       Host:     "api.nordvpn.com",
       Path:     "/v1/servers",
       RawQuery: "limit=0",
    }
 
-   fmt.Fprintf(os.Stderr, "Downloading latest server list from %s...\n", u.String())
-   resp, err := http.Get(u.String())
+   fmt.Fprintf(os.Stderr, "Downloading latest server list from %s...\n", endpoint.String())
+   resp, err := http.Get(endpoint.String())
    if err != nil {
       return fmt.Errorf("failed to fetch data: %w", err)
    }
@@ -271,7 +277,7 @@ func refreshFile(filePath string) error {
 
    out, err := os.Create(filePath)
    if err != nil {
-      return fmt.Errorf("failed to create file: %w", err)
+      return fmt.Errorf("failed to create file:  %w", err)
    }
    defer out.Close()
 
@@ -284,27 +290,27 @@ func refreshFile(filePath string) error {
 }
 
 func saveUsedServer(path, hostname string) error {
-   f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+   file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
    if err != nil {
       return err
    }
-   defer f.Close()
-   _, err = fmt.Fprintln(f, hostname)
+   defer file.Close()
+   _, err = fmt.Fprintln(file, hostname)
    return err
 }
 
 // ---------------------------------------------------------------------------
-// Proxy testing
+// Proxy testing — measures actual download speed only
 // ---------------------------------------------------------------------------
 
-func testProxy(proxyURL, targetURL string, timeout time.Duration) (time.Duration, error) {
-   u, err := url.Parse(proxyURL)
+func testProxy(proxyURL, downloadURL string, timeout time.Duration) (float64, bool, error) {
+   parsed, err := url.Parse(proxyURL)
    if err != nil {
-      return 0, fmt.Errorf("bad proxy URL: %w", err)
+      return 0, false, fmt.Errorf("bad proxy URL: %w", err)
    }
 
    transport := &http.Transport{
-      Proxy: http.ProxyURL(u),
+      Proxy: http.ProxyURL(parsed),
    }
    client := &http.Client{
       Transport: transport,
@@ -312,27 +318,39 @@ func testProxy(proxyURL, targetURL string, timeout time.Duration) (time.Duration
    }
 
    start := time.Now()
-   resp, err := client.Get(targetURL)
+   resp, err := client.Get(downloadURL)
    if err != nil {
-      return 0, err
+      if strings.Contains(err.Error(), "Proxy Authentication Required") {
+         return 0, true, nil
+      }
+      return 0, false, fmt.Errorf("download test failed: %w", err)
    }
    defer resp.Body.Close()
-   latency := time.Since(start)
 
    if resp.StatusCode != http.StatusOK {
-      return 0, fmt.Errorf("upstream returned %s", resp.Status)
+      return 0, false, fmt.Errorf("download returned %s", resp.Status)
    }
 
-   io.Copy(io.Discard, resp.Body)
-   return latency, nil
+   written, err := io.Copy(io.Discard, resp.Body)
+   elapsed := time.Since(start)
+
+   if err != nil {
+      return 0, false, fmt.Errorf("download interrupted: %w", err)
+   }
+
+   if elapsed > 0 {
+      return float64(written) / elapsed.Seconds(), false, nil
+   }
+
+   return 0, false, nil
 }
 
 // ---------------------------------------------------------------------------
-// Used-server tracking (state file)
+// Used-server tracking (single state file for all countries)
 // ---------------------------------------------------------------------------
 
-func usedServersPath(cacheDir, country string) string {
-   return filepath.Join(cacheDir, "nordVpn", fmt.Sprintf("used_%s.txt", country))
+func usedServersPath(cacheDir string) string {
+   return filepath.Join(cacheDir, "nordVpn", "used.txt")
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +384,7 @@ type Server struct {
 }
 
 // ---------------------------------------------------------------------------
-// Server filtering (no sorting by load — we probe live instead)
+// Server filtering
 // ---------------------------------------------------------------------------
 
 func filterServers(servers []*Server, countryCode string) []*Server {
@@ -378,17 +396,17 @@ func filterServers(servers []*Server, countryCode string) []*Server {
       "legacy_obfuscated_servers": true,
    }
 
-   for _, s := range servers {
+   for _, server := range servers {
       isTargetCountry := false
-      for _, loc := range s.Locations {
-         if loc.Country.Code == countryCode {
+      for _, location := range server.Locations {
+         if location.Country.Code == countryCode {
             isTargetCountry = true
             break
          }
       }
 
       isBadServer := false
-      for _, group := range s.Groups {
+      for _, group := range server.Groups {
          if badGroups[group.Identifier] {
             isBadServer = true
             break
@@ -396,11 +414,10 @@ func filterServers(servers []*Server, countryCode string) []*Server {
       }
 
       if isTargetCountry && !isBadServer {
-         filtered = append(filtered, s)
+         filtered = append(filtered, server)
       }
    }
 
-   // Sort by hostname for deterministic ordering across runs
    slices.SortFunc(filtered, func(a, b *Server) int {
       return cmp.Compare(a.Hostname, b.Hostname)
    })
