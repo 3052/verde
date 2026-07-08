@@ -17,7 +17,6 @@ func main() {
    country := flag.String("country", "", "Target country code (e.g., PL, DE, US)")
    reset := flag.Bool("reset", false, "Reset the used-servers list (all countries)")
    downloadURL := flag.String("download", "", "URL to test download speed with (required for -country)")
-   minSpeed := flag.Float64("min-speed", 2.0, "Minimum acceptable download speed in MB/s")
    flag.Parse()
 
    cacheDir, err := os.UserCacheDir()
@@ -46,7 +45,7 @@ func main() {
       if *downloadURL == "" {
          log.Fatalf("-country requires -download URL")
       }
-      if err := processCountryServers(filePath, cacheDir, *country, *downloadURL, *minSpeed); err != nil {
+      if err := processCountryServers(filePath, cacheDir, *country, *downloadURL); err != nil {
          log.Fatalf("Error: %v", err)
       }
       return

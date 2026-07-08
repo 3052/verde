@@ -56,7 +56,7 @@ func loadUsedServers(path string) map[string]bool {
    return used
 }
 
-func processCountryServers(filePath, cacheDir, country, downloadURL string, minSpeedMBps float64) error {
+func processCountryServers(filePath, cacheDir, country, downloadURL string) error {
    fileInfo, err := os.Stat(filePath)
    if err != nil {
       if os.IsNotExist(err) {
@@ -101,10 +101,13 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string, minS
       )
    }
 
-   minSpeedBps := minSpeedMBps * 1024 * 1024
+   // Limit to first 10 candidates
+   if len(candidates) > 10 {
+      candidates = candidates[:10]
+   }
 
-   fmt.Fprintf(os.Stderr, "Testing %d candidate(s) for %s (%d used globally, min %.1f MB/s)…\n\n",
-      len(candidates), country, len(used), minSpeedMBps)
+   fmt.Fprintf(os.Stderr, "Testing %d candidate(s) for %s (%d used globally)…\n\n",
+      len(candidates), country, len(used))
 
    username, password, err := getCredentials()
    if err != nil {
@@ -117,6 +120,11 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string, minS
    )
 
    var tested []string
+   var best struct {
+      server *Server
+      speed  float64
+      url    string
+   }
 
    for _, server := range candidates {
       proxyHostname := server.Hostname
@@ -144,43 +152,49 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string, minS
 
       if rateLimited {
          fmt.Fprintf(os.Stderr, "\nStill rate-limited after retry. Saving %d tested server(s)…\n", len(tested))
-
          for _, hostname := range tested {
             if saveErr := saveUsedServer(usedPath, hostname); saveErr != nil {
                fmt.Fprintf(os.Stderr, "Warning: could not save used-server state for %s: %v\n", hostname, saveErr)
             }
          }
-
          return fmt.Errorf("rate-limited by NordVPN. %d server(s) saved as tested — re-run to continue", len(tested))
       }
+
+      tested = append(tested, server.Hostname)
 
       if err != nil {
          fmt.Fprintf(os.Stderr, "SKIP  %-20s  %v\n", server.Name, err)
          continue
       }
 
-      tested = append(tested, server.Hostname)
-
       speedMB := speedBps / 1024 / 1024
 
-      if speedBps >= minSpeedBps {
-         fmt.Fprintf(os.Stderr, "PASS  %-20s  %.1f MB/s\n", server.Name, speedMB)
-
-         if err := saveUsedServer(usedPath, server.Hostname); err != nil {
-            fmt.Fprintf(os.Stderr, "Warning: could not save used-server state: %v\n", err)
-         }
-
-         fmt.Printf("name: %s\n", server.Name)
-         fmt.Printf("hostname: %s\n", server.Hostname)
-         fmt.Printf("speed_mbps: %.1f\n", speedMB)
-         fmt.Printf("url: %s\n", proxyURL.String())
-         return nil
+      if best.server == nil || speedBps > best.speed {
+         best.server = server
+         best.speed = speedBps
+         best.url = proxyURL.String()
       }
 
-      fmt.Fprintf(os.Stderr, "FAIL  %-20s  %.1f MB/s (below %.1f MB/s)\n", server.Name, speedMB, minSpeedMBps)
+      fmt.Fprintf(os.Stderr, "OK    %-20s  %.1f MB/s\n", server.Name, speedMB)
    }
 
-   return fmt.Errorf("no candidate server met the minimum speed of %.1f MB/s", minSpeedMBps)
+   for _, hostname := range tested {
+      if saveErr := saveUsedServer(usedPath, hostname); saveErr != nil {
+         fmt.Fprintf(os.Stderr, "Warning: could not save used-server state for %s: %v\n", hostname, saveErr)
+      }
+   }
+
+   if best.server == nil {
+      return fmt.Errorf("no candidate server responded successfully")
+   }
+
+   speedMB := best.speed / 1024 / 1024
+   fmt.Printf("name: %s\n", best.server.Name)
+   fmt.Printf("hostname: %s\n", best.server.Hostname)
+   fmt.Printf("speed_mbps: %.1f\n", speedMB)
+   fmt.Printf("url: %s\n", best.url)
+
+   return nil
 }
 
 func saveUsedServer(path, hostname string) error {
