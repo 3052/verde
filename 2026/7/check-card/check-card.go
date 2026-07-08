@@ -18,6 +18,7 @@ var targets = []string{
    "BRAUMS STORE",
    "CHICK-FIL-A",
    "JASON'S DELI",
+   "JIMMY JOHNS",
    "LA MADELEINE",
    "MCDONALD'S",
    "ROMANO'S PIZ",
