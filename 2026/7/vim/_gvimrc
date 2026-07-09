@@ -1,5 +1,5 @@
 " [2026-06-18] long lines 
-let &synmaxcol = 3000
+let &synmaxcol = 8000
 
 " [2026-06-18] vimhelp.org/options.txt.html#%27colorcolumn%27
 let &colorcolumn = 82

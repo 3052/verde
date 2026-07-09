@@ -24,6 +24,7 @@ var targets = []string{
    "ROMANO'S PIZ",
    "SCHLOTZSKYS",
    "SPRING CREEK",
+   "STARBUCKS",
    "WENDY",
    "WHATABURGER",
 }
