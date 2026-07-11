@@ -16,7 +16,7 @@ func main() {
    refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN")
    country := flag.String("country", "", "Target country code (e.g., PL, DE, US)")
    reset := flag.Bool("reset", false, "Reset the used-servers list (all countries)")
-   downloadURL := flag.String("download", "", "URL to test download speed with (required for -country)")
+   downloadURL := flag.String("download", "https://speed.cloudflare.com/__down?bytes=999999", "URL to test download speed with")
    flag.Parse()
 
    cacheDir, err := os.UserCacheDir()
@@ -42,9 +42,6 @@ func main() {
    }
 
    if *country != "" {
-      if *downloadURL == "" {
-         log.Fatalf("-country requires -download URL")
-      }
       if err := processCountryServers(filePath, cacheDir, *country, *downloadURL); err != nil {
          log.Fatalf("Error: %v", err)
       }

@@ -120,11 +120,13 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
    )
 
    var tested []string
-   var best struct {
+
+   type result struct {
       server *Server
       speed  float64
       url    string
    }
+   var results []result
 
    for _, server := range candidates {
       proxyHostname := server.Hostname
@@ -168,14 +170,13 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
       }
 
       speedMB := speedBps / 1024 / 1024
-
-      if best.server == nil || speedBps > best.speed {
-         best.server = server
-         best.speed = speedBps
-         best.url = proxyURL.String()
-      }
-
       fmt.Fprintf(os.Stderr, "OK    %-20s  %.1f MB/s\n", server.Name, speedMB)
+
+      results = append(results, result{
+         server: server,
+         speed:  speedBps,
+         url:    proxyURL.String(),
+      })
    }
 
    for _, hostname := range tested {
@@ -184,15 +185,24 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
       }
    }
 
-   if best.server == nil {
+   if len(results) == 0 {
       return fmt.Errorf("no candidate server responded successfully")
    }
 
-   speedMB := best.speed / 1024 / 1024
-   fmt.Printf("name: %s\n", best.server.Name)
-   fmt.Printf("hostname: %s\n", best.server.Hostname)
-   fmt.Printf("speed_mbps: %.1f\n", speedMB)
-   fmt.Printf("url: %s\n", best.url)
+   slices.SortFunc(results, func(a, b result) int {
+      return cmp.Compare(a.speed, b.speed)
+   })
+
+   for i, r := range results {
+      speedMB := r.speed / 1024 / 1024
+      if i > 0 {
+         fmt.Println()
+      }
+      fmt.Printf("name: %s\n", r.server.Name)
+      fmt.Printf("hostname: %s\n", r.server.Hostname)
+      fmt.Printf("speed_mbps: %.1f\n", speedMB)
+      fmt.Printf("url: %s\n", r.url)
+   }
 
    return nil
 }
