@@ -34,7 +34,6 @@ var defaultExcludeTypes = []string{
    "image/x-icon",
    "text/css",
    "text/event-stream",
-   "text/html",
    "text/javascript",
    "text/plain",
    "text/plain charset=utf-8",
