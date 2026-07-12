@@ -1,3 +1,4 @@
+// main.go
 package main
 
 import (
@@ -13,9 +14,8 @@ import (
 
 func main() {
    log.SetFlags(log.Ltime)
-   refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN")
+   refresh := flag.Bool("refresh", false, "Fetch the latest server list from NordVPN and reset the used-servers list")
    country := flag.String("country", "", "Target country code (e.g., PL, DE, US)")
-   reset := flag.Bool("reset", false, "Reset the used-servers list (all countries)")
    downloadURL := flag.String("download", "https://speed.cloudflare.com/__down?bytes=999999", "URL to test download speed with")
    flag.Parse()
 
@@ -29,10 +29,6 @@ func main() {
       if err := refreshFile(filePath); err != nil {
          log.Fatalf("Refresh failed: %v", err)
       }
-      return
-   }
-
-   if *reset {
       usedPath := usedServersPath(cacheDir)
       if err := os.Remove(usedPath); err != nil && !os.IsNotExist(err) {
          log.Fatalf("Failed to reset used servers: %v", err)
@@ -48,7 +44,7 @@ func main() {
       return
    }
 
-   fmt.Fprintf(os.Stderr, "Error: You must provide either -refresh, -reset, or -country.\n\n")
+   fmt.Fprintf(os.Stderr, "Error: You must provide either -refresh or -country.\n\n")
    flag.Usage()
    os.Exit(1)
 }

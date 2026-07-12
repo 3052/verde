@@ -96,7 +96,7 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
 
    if len(candidates) == 0 {
       return fmt.Errorf(
-         "all %d servers for %s have been used. Run: %s -reset",
+         "all %d servers for %s have been used. Run: %s -refresh",
          len(filtered), country, os.Args[0],
       )
    }
@@ -114,10 +114,7 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
       return fmt.Errorf("failed to retrieve credentials: %w", err)
    }
 
-   const (
-      probeTimeout   = 30 * time.Second
-      rateLimitDelay = 210 * time.Second
-   )
+   const probeTimeout = 30 * time.Second
 
    var tested []string
 
@@ -147,27 +144,16 @@ func processCountryServers(filePath, cacheDir, country, downloadURL string) erro
       speedBps, rateLimited, err := testProxy(proxyURL.String(), downloadURL, probeTimeout)
 
       if rateLimited {
-         fmt.Fprintf(os.Stderr, "RATE  %-20s  rate-limited, waiting %s and retrying…\n", server.Name, rateLimitDelay)
-         time.Sleep(rateLimitDelay)
-         speedBps, rateLimited, err = testProxy(proxyURL.String(), downloadURL, probeTimeout)
+         fmt.Fprintf(os.Stderr, "RATE  %-20s  rate-limited, stopping candidate tests\n", server.Name)
+         break
       }
-
-      if rateLimited {
-         fmt.Fprintf(os.Stderr, "\nStill rate-limited after retry. Saving %d tested server(s)…\n", len(tested))
-         for _, hostname := range tested {
-            if saveErr := saveUsedServer(usedPath, hostname); saveErr != nil {
-               fmt.Fprintf(os.Stderr, "Warning: could not save used-server state for %s: %v\n", hostname, saveErr)
-            }
-         }
-         return fmt.Errorf("rate-limited by NordVPN. %d server(s) saved as tested — re-run to continue", len(tested))
-      }
-
-      tested = append(tested, server.Hostname)
 
       if err != nil {
          fmt.Fprintf(os.Stderr, "SKIP  %-20s  %v\n", server.Name, err)
          continue
       }
+
+      tested = append(tested, server.Hostname)
 
       speedMB := speedBps / 1024 / 1024
       fmt.Fprintf(os.Stderr, "OK    %-20s  %.1f MB/s\n", server.Name, speedMB)
