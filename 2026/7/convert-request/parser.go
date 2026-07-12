@@ -4,6 +4,7 @@ import (
    "bufio"
    "bytes"
    "encoding/json"
+   "fmt"
    "io"
    "net/url"
    "os"
@@ -22,18 +23,20 @@ type QueryParam struct {
 }
 
 type RequestData struct {
-   Method    string
-   URLScheme string
-   URLHost   string
-   URLPath   string
-   URLQuery  []QueryParam
-   Headers   map[string]string
-   Cookies   []Cookie
-   Body      string
-   HasBody   bool
+   Method      string
+   URLScheme   string
+   URLHost     string
+   URLPath     string
+   URLQuery    []QueryParam
+   Headers     map[string]string
+   Cookies     []Cookie
+   Body        string
+   HasBody     bool
+   HasFormBody bool
+   FormParams  []QueryParam
 }
 
-func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
+func parseRawRequest(filename string, indentBody, forceForm bool) (*RequestData, error) {
    file, err := os.Open(filename)
    if err != nil {
       return nil, err
@@ -52,7 +55,7 @@ func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
 
    parts := strings.Split(strings.TrimSpace(firstLine), " ")
    if len(parts) < 3 {
-      return nil, err
+      return nil, fmt.Errorf("invalid request line: %q", firstLine)
    }
 
    reqData.Method = parts[0]
@@ -135,22 +138,39 @@ func parseRawRequest(filename string, indentBody bool) (*RequestData, error) {
    }
 
    var bodyBytes bytes.Buffer
-   _, err = io.Copy(&bodyBytes, reader)
-   if err != nil && err != io.EOF {
+   if _, err = io.Copy(&bodyBytes, reader); err != nil && err != io.EOF {
       return nil, err
    }
 
    if bodyBytes.Len() > 0 {
+      if forceForm {
+         parsedForm, perr := url.ParseQuery(bodyBytes.String())
+         if perr != nil {
+            return nil, fmt.Errorf("failed to parse body as form-encoded: %w", perr)
+         }
+         reqData.HasFormBody = true
+         for k, vals := range parsedForm {
+            for _, v := range vals {
+               reqData.FormParams = append(reqData.FormParams, QueryParam{
+                  Key:   strconv.Quote(k),
+                  Value: strconv.Quote(v),
+               })
+            }
+         }
+         if _, ok := reqData.Headers["Content-Type"]; !ok {
+            reqData.Headers["Content-Type"] = strconv.Quote("application/x-www-form-urlencoded")
+         }
+         return reqData, nil
+      }
+
       reqData.HasBody = true
       bodyStr := bodyBytes.String()
-
       if indentBody {
          var indented bytes.Buffer
          if err := json.Indent(&indented, bodyBytes.Bytes(), "", "\t"); err == nil {
             bodyStr = indented.String()
          }
       }
-
       reqData.Body = "`" + strings.ReplaceAll(bodyStr, "`", "`+\"`\"+`") + "`"
    }
 

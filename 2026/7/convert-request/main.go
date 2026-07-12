@@ -12,7 +12,7 @@ import (
 const goCodeTemplate = `package main
 
 import (
-{{if .HasBody}}   "bytes"
+{{if or .HasBody .HasFormBody}}   "bytes"
 {{end}}   "net/http"
    "net/url"
    "os"
@@ -32,7 +32,11 @@ func main() {
 {{end}}   reqURL.RawQuery = q.Encode()
 {{end}}
 
-{{if .HasBody}}
+{{if .HasFormBody}}
+   form := url.Values{}
+{{range .FormParams}}   form.Add({{.Key}}, {{.Value}})
+{{end}}   req, err := http.NewRequest("{{.Method}}", reqURL.String(), bytes.NewBufferString(form.Encode()))
+{{else if .HasBody}}
    bodyData := []byte({{.Body}})
    req, err := http.NewRequest("{{.Method}}", reqURL.String(), bytes.NewBuffer(bodyData))
 {{else}}
@@ -79,6 +83,7 @@ func generateGoFile(data *RequestData, outputPath string) error {
 func main() {
    inputFile := flag.String("in", "", "Input HTTP request text file (required)")
    indentJSON := flag.Bool("indent", false, "Pretty-print/indent the JSON body")
+   forceForm := flag.Bool("form", false, "Force treating the body as a form-encoded query string (key=value&...)")
 
    flag.Parse()
 
@@ -87,7 +92,7 @@ func main() {
       os.Exit(1)
    }
 
-   reqData, err := parseRawRequest(*inputFile, *indentJSON)
+   reqData, err := parseRawRequest(*inputFile, *indentJSON, *forceForm)
    if err != nil {
       log.Fatalf("Error parsing request: %v", err)
    }
@@ -97,6 +102,5 @@ func main() {
       log.Fatalf("Error generating file: %v", err)
    }
 
-   // Added proper logging to confirm the file was written
    log.Printf("Success: Generated Go code written to %s\n", outputFile)
 }
