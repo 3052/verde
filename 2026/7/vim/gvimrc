@@ -1,0 +1,36 @@
+" Number of spaces a Tab character displays as
+set tabstop=3
+
+" Insert spaces instead of tab characters
+set expandtab
+
+" Don't load filetype plugins (stops go.vim from overriding settings)
+filetype plugin off
+
+" Don't load filetype indent scripts
+filetype indent off
+
+" Carry over indentation from the previous line on Enter
+set autoindent
+
+" Trick Vim into keeping indentation on empty lines
+" Inserts a dummy character then deletes it, preserving the indent
+inoremap <CR> <CR>x<BS>
+
+" Number of spaces used by > and < commands
+set shiftwidth=3
+
+" 2026-07-13
+" highlight matches
+set hlsearch
+
+" 2026-07-13
+" vimhelp.org/options.txt.html#%27clipboard%27
+set clipboard=unnamed
+
+" 2026-07-13
+" vimhelp.org/options.txt.html#%27wrapscan%27
+set nowrapscan
+
+" 2026-07-13
+colorscheme material
