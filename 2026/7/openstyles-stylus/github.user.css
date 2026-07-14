@@ -38,27 +38,6 @@
       fill: hsl(10, 80%, 50%) !important
    }
    /*
-   2023-06-17
-   github.com/ziglang/zig/blob/master/build.zig
-   */
-   .pl-v {
-      color: var(--color-fg-default)
-   }
-   /*
-   2023-05-13
-   github.com/ME/umber/blob/main/umber.go
-   */
-   #read-only-cursor-text-area {
-      font-size: 1em !important
-   }
-   /*
-   2023-05-11
-   github.com/ME/umber
-   */
-   .markdown-body {
-      font-family: Arial !important
-   }
-   /*
    2023-05-11
    github.com/ME/umber/blob/main/umber.go
    */

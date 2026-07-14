@@ -1,3 +1,6 @@
+" Disable line wrapping (do not wrap long lines)
+set nowrap
+
 " Number of spaces a Tab character displays as
 set tabstop=3
 
