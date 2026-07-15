@@ -1,3 +1,7 @@
+" Enable smart case search
+set ignorecase
+set smartcase
+
 " Disable line wrapping (do not wrap long lines)
 set nowrap
 

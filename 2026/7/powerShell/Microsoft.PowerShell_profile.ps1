@@ -5,6 +5,7 @@ $dirs = @(
    'C:\go\bin'
    'C:\less-x64'
    'C:\neocities-deploy-Windows-x86_64'
+   'C:\ripgrep'
    'C:\staticcheck'
    'C:\vim92'
 )
