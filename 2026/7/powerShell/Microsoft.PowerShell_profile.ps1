@@ -1,3 +1,11 @@
+Set-PSReadLineKeyHandler Ctrl+UpArrow {
+   Set-Location ..
+   [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+}
+
+$env:GOPROXY = 'direct'
+$env:GOSUMDB = 'off'
+
 $dirs = @(
    'C:\MinGit\mingw64\bin'
    'C:\Users\Steven\go\bin'

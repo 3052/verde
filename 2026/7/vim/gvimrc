@@ -1,3 +1,6 @@
+" Clear search highlighting with <Leader> + h (or any key you prefer)
+nnoremap <silent> <Leader>h :nohlsearch<CR>
+
 " Enable smart case search
 set ignorecase
 set smartcase
