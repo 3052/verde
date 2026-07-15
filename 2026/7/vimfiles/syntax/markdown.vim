@@ -1,3 +1,6 @@
+" markdown.vim — custom markdown syntax
+" Written for use with the Material colorscheme
+
 if exists("b:current_syntax")
   finish
 endif
@@ -57,8 +60,9 @@ syn match markdownRule /^\s*_\s*_\s*_\s*_*\s*$/
 " [text](url)
 syn region markdownLink matchgroup=markdownLinkDelimiter start=/\[/ end=/\]/ nextgroup=markdownUrl skipwhite oneline contains=@Spell
 syn region markdownUrl matchgroup=markdownLinkDelimiter start=/(/ end=/)/ contained oneline
+
+" Autolink with angle brackets only
 syn match markdownUrlAuto /<\(https\?:\/\/[^>]\+\)>/
-syn match markdownUrlAuto /\(https\?:\/\/\)\?\w\+\(\.\w\+\)\+\(\/\S*\)\?/
 
 " Reference link definitions: [id]: url "title"
 syn match markdownLinkDef /^\s*\[^]\+]:\s*\S.*/ contains=markdownLinkText,markdownLinkDefUrl,markdownLinkTitle
@@ -82,11 +86,11 @@ hi def link markdownStrike              Special
 hi def link markdownStrikeDelimiter     Delimiter
 
 hi def link markdownCode                String
-hi def link markdownCodeDelimiter       Delimiter
+hi def link markdownCodeDelimiter       String
 hi def link markdownFencedCodeBlock     String
 
 hi def link markdownH1                  Title
-hi def link markdownH2                  Title
+hi def link markdownH2                  Statement
 hi def link markdownH3                  Title
 hi def link markdownH4                  Title
 hi def link markdownH5                  Title
