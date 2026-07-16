@@ -12,7 +12,9 @@ $dirs = @(
    'C:\fd'
    'C:\go\bin'
    'C:\less-x64'
+   'C:\mitmproxy'
    'C:\neocities-deploy-Windows-x86_64'
+   'C:\rclone'
    'C:\ripgrep'
    'C:\staticcheck'
    'C:\vim92'
@@ -22,3 +24,14 @@ $env:PATH = $dirs -join ';'
 
 # git commit -v
 $env:EDITOR = 'gvim'
+
+function Set-PathAndroid {
+   $env:PATH = @(
+      'C:\Program Files\Android\Android Studio\jbr\bin'
+      'C:\Users\Steven\AppData\Local\Android\Sdk\build-tools\36.0.0'
+      'C:\Users\Steven\AppData\Local\Android\Sdk\emulator'
+      'C:\Users\Steven\AppData\Local\Android\Sdk\platform-tools'
+      'C:\Users\Steven\go\bin'
+   ) -join ';'
+   Write-Host "PATH switched to Android/Python" -ForegroundColor Green
+}
