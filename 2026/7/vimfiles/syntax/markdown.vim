@@ -22,8 +22,8 @@ syn region markdownCode          matchgroup=markdownCodeDelimiter start=/``/ ski
 
 " --- Fenced code blocks -------------------------------------------------------
 
-syn region markdownFencedCodeBlock matchgroup=markdownCodeDelimiter start=/\n\?\s*\zs```/ end=/^\s*```/ keepend contains=@NoSpell
-syn region markdownFencedCodeBlock matchgroup=markdownCodeDelimiter start=/\n\?\s*\zs\~\~\~/ end=/^\s*\~\~\~/ keepend contains=@NoSpell
+syn region markdownFencedCodeBlock matchgroup=markdownCodeDelimiter start=/^\s*\zs```/ end=/^\s*```/ keepend contains=@NoSpell
+syn region markdownFencedCodeBlock matchgroup=markdownCodeDelimiter start=/^\s*\zs\~\~\~/ end=/^\s*\~\~\~/ keepend contains=@NoSpell
 
 " --- Headings -----------------------------------------------------------------
 
@@ -65,7 +65,7 @@ syn region markdownUrl matchgroup=markdownLinkDelimiter start=/(/ end=/)/ contai
 syn match markdownUrlAuto /<\(https\?:\/\/[^>]\+\)>/
 
 " Reference link definitions: [id]: url "title"
-syn match markdownLinkDef /^\s*\[^]\+]:\s*\S.*/ contains=markdownLinkText,markdownLinkDefUrl,markdownLinkTitle
+syn match markdownLinkDef /^\s*\[[^]]\+]:\s*\S.*/ contains=markdownLinkText,markdownLinkDefUrl,markdownLinkTitle
 syn match markdownLinkText /\[[^]]\+\]/ contained
 syn match markdownLinkDefUrl /\S\+/ contained
 syn region markdownLinkTitle start=/"/ end=/"/ contained oneline
@@ -115,5 +115,9 @@ hi def link markdownLinkDefUrl          Underlined
 hi def link markdownLinkTitle           String
 
 hi def link markdownTableSeparator      Delimiter
+
+" --- Syntax sync --------------------------------------------------------------
+
+syn sync minlines=100
 
 let b:current_syntax = "markdown"

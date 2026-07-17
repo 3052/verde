@@ -1,3 +1,8 @@
+" first press → first non-blank char, second press → column 0
+noremap <expr> <Home> col('.') == match(getline('.'), '\S') + 1 ? '0' : '^'
+
+set softtabstop=3      " ← makes Backspace delete 3 spaces at once
+
 " Clear search highlighting with <Leader> + h (or any key you prefer)
 nnoremap <silent> <Leader>h :nohlsearch<CR>
 

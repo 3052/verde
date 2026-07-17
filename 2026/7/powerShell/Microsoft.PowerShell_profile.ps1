@@ -1,3 +1,5 @@
+Remove-Item -Path Alias:* -Force 
+
 Set-PSReadLineKeyHandler Ctrl+UpArrow {
    Set-Location ..
    [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
@@ -9,6 +11,7 @@ $env:GOSUMDB = 'off'
 $dirs = @(
    'C:\MinGit\mingw64\bin'
    'C:\Users\Steven\go\bin'
+   'C:\curl\bin'
    'C:\fd'
    'C:\go\bin'
    'C:\less-x64'
