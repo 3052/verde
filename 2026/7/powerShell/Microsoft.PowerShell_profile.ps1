@@ -35,6 +35,7 @@ function Set-PathAndroid {
       'C:\Users\Steven\AppData\Local\Android\Sdk\emulator'
       'C:\Users\Steven\AppData\Local\Android\Sdk\platform-tools'
       'C:\Users\Steven\go\bin'
+      'C:\jadx\bin'
    ) -join ';'
    Write-Host "PATH switched to Android/Python" -ForegroundColor Green
 }
