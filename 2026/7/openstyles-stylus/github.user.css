@@ -11,41 +11,42 @@
    github.com/ME
    */
    .ContributionCalendar-day[data-level="1"] {
-      background: hsl(210, 100%, 80%) !important
+      background: hsl(210, 100%, 80%) !important;
    }
    .ContributionCalendar-day[data-level="2"] {
-      background: hsl(100, 70%, 60%) !important
+      background: hsl(100, 70%, 60%) !important;
    }
    .ContributionCalendar-day[data-level="3"] {
-      background: hsl(50, 80%, 60%) !important
+      background: hsl(50, 80%, 60%) !important;
    }
    .ContributionCalendar-day[data-level="4"] {
-      background: hsl(10, 80%, 50%) !important
-   }
-   .ContributionCalendar-grid {
-      direction: rtl
+      background: hsl(10, 80%, 50%) !important;
    }
    .ContributionCalendar-day[data-level="1"] {
-      fill: hsl(210, 100%, 80%) !important
+      fill: hsl(210, 100%, 80%) !important;
    }
    .ContributionCalendar-day[data-level="2"] {
-      fill: hsl(100, 70%, 60%) !important
+      fill: hsl(100, 70%, 60%) !important;
    }
    .ContributionCalendar-day[data-level="3"] {
-      fill: hsl(50, 80%, 60%) !important
+      fill: hsl(50, 80%, 60%) !important;
    }
    .ContributionCalendar-day[data-level="4"] {
-      fill: hsl(10, 80%, 50%) !important
+      fill: hsl(10, 80%, 50%) !important;
    }
    /*
    2023-05-11
    github.com/ME/umber/blob/main/umber.go
    */
-   [font-family="normal"],
-   body {
-      font-family: Arial !important
+   body,
+   [font-family="normal"] {
+      font-family: Arial !important;
    }
-   .react-code-text {
-      font-size: 1em !important
+   
+   #read-only-cursor-text-area,
+   .react-code-text,
+   [data-code-text] {
+      font-size: 14px !important;
    }
+   
 }

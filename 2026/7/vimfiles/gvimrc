@@ -1,37 +1,58 @@
+" 2026-07-18
+" show line numbers
+set number
+
+" 2026-07-18
+" strip all gVim GUI chrome; keep only scrollbars (r=right, b=bottom)
+set guioptions=rb
+
+" 2026-07-18
 " first press → first non-blank char, second press → column 0
 noremap <expr> <Home> col('.') == match(getline('.'), '\S') + 1 ? '0' : '^'
 
-set softtabstop=3      " ← makes Backspace delete 3 spaces at once
+" 2026-07-18
+" makes Backspace delete 3 spaces at once
+set softtabstop=3
 
-" Clear search highlighting with <Leader> + h (or any key you prefer)
+" 2026-07-18
+" Clear search highlighting with <Leader> + h
 nnoremap <silent> <Leader>h :nohlsearch<CR>
 
+" 2026-07-18
 " Enable smart case search
 set ignorecase
 set smartcase
 
+" 2026-07-18
 " Disable line wrapping (do not wrap long lines)
 set nowrap
 
+" 2026-07-18
 " Number of spaces a Tab character displays as
 set tabstop=3
 
+" 2026-07-18
 " Insert spaces instead of tab characters
 set expandtab
 
+" 2026-07-18
 " Don't load filetype plugins (stops go.vim from overriding settings)
 filetype plugin off
 
+" 2026-07-18
 " Don't load filetype indent scripts
 filetype indent off
 
+" 2026-07-18
 " Carry over indentation from the previous line on Enter
 set autoindent
 
+" 2026-07-18
 " Trick Vim into keeping indentation on empty lines
 " Inserts a dummy character then deletes it, preserving the indent
 inoremap <CR> <CR>x<BS>
 
+" 2026-07-18
 " Number of spaces used by > and < commands
 set shiftwidth=3
 
