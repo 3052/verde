@@ -12,6 +12,34 @@ import (
    "strings"
 )
 
+// containsControl reports whether s contains any byte that is unsafe to
+// embed verbatim in a Go raw string literal. Newlines and tabs are allowed
+// (they render fine inside backticks); everything else below 0x20, plus
+// 0x7f (DEL), is treated as unsafe.
+func containsControl(s string) bool {
+   for i := 0; i < len(s); i++ {
+      b := s[i]
+      if b < 0x20 && b != '\n' && b != '\t' {
+         return true
+      }
+      if b == 0x7f {
+         return true
+      }
+   }
+   return false
+}
+
+// goStringLiteral returns a Go string literal for s.
+// It prefers a raw string literal (backticks) for readability when s
+// contains no backticks and no problematic control characters; otherwise
+// it falls back to strconv.Quote, which escapes everything safely.
+func goStringLiteral(s string) string {
+   if !strings.ContainsRune(s, '`') && !containsControl(s) {
+      return "`" + s + "`"
+   }
+   return strconv.Quote(s)
+}
+
 type Cookie struct {
    Name  string
    Value string
@@ -171,7 +199,7 @@ func parseRawRequest(filename string, indentBody, forceForm bool) (*RequestData,
             bodyStr = indented.String()
          }
       }
-      reqData.Body = "`" + strings.ReplaceAll(bodyStr, "`", "`+\"`\"+`") + "`"
+      reqData.Body = goStringLiteral(bodyStr)
    }
 
    return reqData, nil

@@ -1,3 +1,6 @@
+" 2026-07-19
+set synmaxcol=5999
+
 " 2026-07-18
 " show line numbers
 set number

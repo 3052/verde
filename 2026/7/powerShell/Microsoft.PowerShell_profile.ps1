@@ -2,53 +2,43 @@
 # Section 1 — Array declarations (never expires)
 # ────────────────────────────────────────────────────────────────────
 
-$basePaths = @()
+$basePath = @()
 
-$androidPaths = @()
+$androidPath = @()
 
 # ────────────────────────────────────────────────────────────────────
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
-# 2026-07-18
-$basePaths += 'C:\MinGit\mingw64\bin'
-# 2026-07-18
-$basePaths += 'C:\Users\Steven\go\bin'
-# 2026-07-18
-$basePaths += 'C:\curl\bin'
-# 2026-07-18
-$basePaths += 'C:\fd'
-# 2026-07-18
-$basePaths += 'C:\gdu_windows_amd64'
-# 2026-07-18
-$basePaths += 'C:\go\bin'
-# 2026-07-18
-$basePaths += 'C:\less-x64'
-# 2026-07-18
-$basePaths += 'C:\mitmproxy'
-# 2026-07-18
-$basePaths += 'C:\neocities-deploy-Windows-x86_64'
-# 2026-07-18
-$basePaths += 'C:\rclone'
-# 2026-07-18
-$basePaths += 'C:\ripgrep'
-# 2026-07-18
-$basePaths += 'C:\staticcheck'
-# 2026-07-18
-$basePaths += 'C:\vim92'
+# 2026-07-19
+$androidPath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314'
+$androidPath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314\Scripts'
+$basePath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314'
+$basePath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314\Scripts'
+$basePath += 'C:\ffmpeg\bin'
 
 # 2026-07-18
-$androidPaths += 'C:\Program Files\Android\Android Studio\jbr\bin'
+$basePath += 'C:\MinGit\mingw64\bin'
+$basePath += 'C:\Users\Steven\go\bin'
+$basePath += 'C:\curl\bin'
+$basePath += 'C:\fd'
+$basePath += 'C:\gdu_windows_amd64'
+$basePath += 'C:\go\bin'
+$basePath += 'C:\less-x64'
+$basePath += 'C:\mitmproxy'
+$basePath += 'C:\neocities-deploy-Windows-x86_64'
+$basePath += 'C:\rclone'
+$basePath += 'C:\ripgrep'
+$basePath += 'C:\staticcheck'
+$basePath += 'C:\vim92'
+
 # 2026-07-18
-$androidPaths += 'C:\Users\Steven\AppData\Local\Android\Sdk\build-tools\36.0.0'
-# 2026-07-18
-$androidPaths += 'C:\Users\Steven\AppData\Local\Android\Sdk\emulator'
-# 2026-07-18
-$androidPaths += 'C:\Users\Steven\AppData\Local\Android\Sdk\platform-tools'
-# 2026-07-18
-$androidPaths += 'C:\Users\Steven\go\bin'
-# 2026-07-18
-$androidPaths += 'C:\jadx\bin'
+$androidPath += 'C:\Program Files\Android\Android Studio\jbr\bin'
+$androidPath += 'C:\Users\Steven\AppData\Local\Android\Sdk\build-tools\36.0.0'
+$androidPath += 'C:\Users\Steven\AppData\Local\Android\Sdk\emulator'
+$androidPath += 'C:\Users\Steven\AppData\Local\Android\Sdk\platform-tools'
+$androidPath += 'C:\Users\Steven\go\bin'
+$androidPath += 'C:\jadx\bin'
 
 # 2026-07-18
 $env:RIPGREP_CONFIG_PATH = 'C:\ripgrep\ripgrep.txt'
@@ -73,7 +63,7 @@ Set-PSReadLineKeyHandler Ctrl+UpArrow {
 
 # 2026-07-18
 function Set-PathAndroid {
-   $env:PATH = $androidPaths -join ';'
+   $env:PATH = $androidPath -join ';'
    Write-Host 'PATH switched to Android/Python' -ForegroundColor Green
 }
 
@@ -81,4 +71,4 @@ function Set-PathAndroid {
 # Section 3 — Join (never expires)
 # ────────────────────────────────────────────────────────────────────
 
-$env:PATH = $basePaths -join ';'
+$env:PATH = $basePath -join ';'
