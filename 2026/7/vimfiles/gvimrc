@@ -1,5 +1,6 @@
-" 2026-07-19
-set synmaxcol=5999
+" 2026-07-20
+set fileformats=unix
+set synmaxcol=6999
 
 " 2026-07-18
 " show line numbers
