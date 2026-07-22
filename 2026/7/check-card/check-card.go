@@ -22,6 +22,7 @@ var targets = []string{
    "MCDONALD'S",
    "ROMANO'S PIZ",
    "SCHLOTZSKYS",
+   "SHAKE SHACK",
    "SHAWARMA PRESS",
    "SPRING CREEK",
    "STARBUCKS",
