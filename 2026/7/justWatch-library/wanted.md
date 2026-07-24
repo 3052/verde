@@ -264,6 +264,7 @@ https://justwatch.com/us/movie/tropic-thunder
 ## 2004
 
 - https://justwatch.com/us/movie/howls-moving-castle
+- https://justwatch.com/us/movie/spiderman-2
 - https://justwatch.com/us/movie/the-village
 
 ## 2003
