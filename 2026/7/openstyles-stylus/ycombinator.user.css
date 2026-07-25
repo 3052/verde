@@ -6,24 +6,6 @@
 ==/userstyle==
 */
 @-moz-document domain("ycombinator.com") {
-   /* 2022-09-03 */
-   .votelinks {
-      visibility: hidden !important
-   }
-   /* 2022-04-01 */
-   .ind {
-      vertical-align: top
-   }
-   /* 2022-03-30 */
-   [height="1"] {
-      height: 3rem
-   }
-   /* 2022-03-28 */
-   [width="0"],
-   [width="40"],
-   [width="80"] {
-      border-right-style: solid
-   }
    /* 2022-03-22 */
    [width="0"] {
       border-color: blue
@@ -33,5 +15,23 @@
    }
    [width="80"] {
       border-color: orange
+   }
+   /* 2022-03-28 */
+   [width="0"],
+   [width="40"],
+   [width="80"] {
+      border-right-style: solid
+   }
+   /* 2022-03-30 */
+   [height="1"] {
+      height: 3rem
+   }
+   /* 2022-09-03 */
+   .votelinks {
+      visibility: hidden !important
+   }
+   /* 2022-04-01 */
+   .ind {
+      vertical-align: top
    }
 }

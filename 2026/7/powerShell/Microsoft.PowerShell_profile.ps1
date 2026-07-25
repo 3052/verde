@@ -10,6 +10,9 @@ $androidPath = @()
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
+# 2026-07-24
+$basePath += 'C:\gron-windows-amd64'
+
 # 2026-07-19
 $androidPath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314'
 $androidPath += 'C:\Users\Steven\AppData\Local\Programs\Python\Python314\Scripts'
