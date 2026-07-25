@@ -10,6 +10,9 @@ $androidPath = @()
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
+# 2026-07-25
+$androidPath += 'C:\go\bin'
+
 # 2026-07-24
 $basePath += 'C:\gron-windows-amd64'
 
