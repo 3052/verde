@@ -1,60 +1,66 @@
 # magisk
 
-- <https://github.com/topjohnwu/Magisk/blob/master/scripts/host_patch.sh>
-- https://issuetracker.google.com/issues/331256113
-- https://issuetracker.google.com/issues/522344738
-- https://topjohnwu.github.io/Magisk/tools.html
+## Step 1: Boot the emulator from the stock image
+```bash
+emulator -avd Television_1080p
+```
 
-~~~
+## Step 2: Check `init` bitness
+```bash
+adb shell getprop ro.product.cpu.abilist64
+```
+- If the output is **empty** → use `-init-bits 32`
+- If the output contains an ABI (like `x86_64` or `arm64-v8a`) → use `-init-bits 64`
+
+## Step 3: Download the Magisk APK and the Go script, then run the patch script
+Download the Magisk APK from the official releases page: <https://github.com/topjohnwu/magisk/releases>
+
+Download the Go patch script from: <https://github.com/3052/verde/tree/main/2026/7/magisk>
+
+With the emulator running, execute the script (replace `Magisk-v30.7.apk` with your downloaded filename):
+```bash
+go run patch.go -apk Magisk-v30.7.apk -img ramdisk.img -init-bits 32
+```
+
+## Step 4: Replace the ramdisk in your system images directory
+1. Close the emulator
+2. Backup the original ramdisk: `cp ramdisk.img ramdisk.img.orig`
+3. Locate your system image directory (e.g., `C:\Users\Steven\AppData\Local\Android\Sdk\system-images\android-34\android-tv\x86\`)
+4. Copy the patched image to that directory, replacing the original:
+   ```bash
+   cp magisk_patched.img "C:\Users\Steven\AppData\Local\Android\Sdk\system-images\android-34\android-tv\x86\ramdisk.img"
+   ```
+
+## Step 5: Cold boot the emulator
+```bash
+emulator -avd Television_1080p -no-snapshot-load -show-kernel
+```
+
+## Step 6: Install the Magisk APK
+```bash
+adb install Magisk-v30.7.apk
+```
+
+## Step 7: Open the Magisk app
+```bash
 adb shell monkey -p com.topjohnwu.magisk -c android.intent.category.LAUNCHER 1
-~~~
+```
+- It should now say **Installed: 30.7**
+- It should prompt: *"Your device needs additional setup..."*
+- Tap **OK** — emulator reboots
 
-and:
+## Step 8: Verify root
+```bash
+adb shell su -c id
+# uid=0(root) gid=0(root)
+```
 
-~~~
-> magisk -apk Magisk-v30.7.apk -img ramdisk.img
-19:51:25 === Step 1: Extracting and Preparing Files ===
-19:51:25 === Step 2: Pushing Files to Emulator ===
-19:51:25 Executing: [adb push Patch_Temp\magisk Patch_Temp\stub.apk Patch_Temp\init-ld Patch_Temp\magiskboot Patch_Temp\magiskinit /data/local/tmp/]
-Patch_Temp\magisk: 1 file pushed, 0 skipped. 92.7 MB/s (435344 bytes in 0.004s)
-Patch_Temp\stub.apk: 1 file pushed, 0 skipped. 83.2 MB/s (70013 bytes in 0.001s)
-Patch_Temp\init-ld: 1 file pushed, 0 skipped. 14.0 MB/s (3984 bytes in 0.000s)
-Patch_Temp\magiskboot: 1 file pushed, 0 skipped. 123.3 MB/s (1026536 bytes in 0.008s)
-Patch_Temp\magiskinit: 1 file pushed, 0 skipped. 101.9 MB/s (226104 bytes in 0.002s)
-5 files pushed, 0 skipped. 31.5 MB/s (1761981 bytes in 0.053s)
-19:51:25 Executing: [adb push ramdisk.img /data/local/tmp/ramdisk.img]
-ramdisk.img: 1 file pushed, 0 skipped. 198.9 MB/s (1576823 bytes in 0.008s)
-19:51:25 === Step 3: Executing CPIO Injection on Emulator ===
-19:51:25 Executing adb shell script:
-19:51:25   > set -e
-19:51:25   > cd /data/local/tmp
-19:51:25   > chmod +x magiskboot
-19:51:25   > ./magiskboot decompress ramdisk.img ramdisk.cpio
-19:51:25   > ./magiskboot cpio ramdisk.cpio 'mkdir 0750 overlay.d' 'mkdir 0750 overlay.d/sbin' 'mkdir 0000 .backup' 'mv init .backup/init' 'add 0644 overlay.d/sbin/stub.apk stub.apk' 'add 0750 init magiskinit' 'add 0755 overlay.d/sbin/init-ld init-ld' 'add 0755 overlay.d/sbin/magisk magisk'
-19:51:25   > ./magiskboot compress=lz4_legacy ramdisk.cpio magisk_patched.img
-Detected format: lz4_legacy
-Loading cpio: [ramdisk.cpio]
-Create directory [overlay.d] (0750)
-Create directory [overlay.d/sbin] (0750)
-Create directory [.backup] (0000)
-Move [init] -> [.backup/init]
-Add file [overlay.d/sbin/stub.apk] (100644)
-Add file [init] (100750)
-Add file [overlay.d/sbin/init-ld] (100755)
-Add file [overlay.d/sbin/magisk] (100755)
-Dumping cpio: [ramdisk.cpio]
-19:51:27 === Step 4: Pulling Patched Image ===
-19:51:27 Executing: [adb pull /data/local/tmp/magisk_patched.img .]
-/data/local/tmp/magisk_patched.img: 1 file pulled, 0 skipped. 78.5 MB/s (2015998 bytes in 0.025s)
-~~~
+## Step 9: Boot the emulator with a proxy (optional)
 
-1. Once the TV reaches the home screen, install the Magisk app from your
-   PowerShell window (rename your zip back to apk first):
-   `adb install Magisk-v30.7.apk`
-2. Open the Magisk app on the TV. It will say Installed 30.7. 
-3. your device needs additional setup for Magisk to work properly. Do you want
-   to proceed and reboot? OK
+If you need to use an HTTP proxy, close the emulator and restart it with the
+`-http-proxy` flag. Always include `-no-snapshot-load` to ensure it cold boots
+with the patched ramdisk:
 
-You now have unrestricted `su` root access on an API 34 Android TV emulator.
-Install your ARM APK, launch it, and use the Superuser tab to grant it root
-permissions.
+```
+emulator -avd Television_1080p -no-snapshot-load -http-proxy http://127.0.0.1:8080
+```
