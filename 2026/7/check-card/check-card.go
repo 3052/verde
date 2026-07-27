@@ -15,7 +15,6 @@ import (
 )
 
 var targets = []string{
-   "BRAUMS STORE",
    "CHICK-FIL-A",
    "JASON'S DELI",
    "LA MADELEINE",

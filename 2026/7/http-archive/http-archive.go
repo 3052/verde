@@ -42,6 +42,7 @@ var defaultExcludeTypes = []string{
    "text/plain charset=utf-8",
    "text/plain",
    "text/xml",
+   "video/iso.segment",
    "video/mp4",
 }
 
