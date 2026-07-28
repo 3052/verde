@@ -1,5 +1,18 @@
 # arms
 
+## mon jul 27
+
+13 + 12 + 11 + 10 + 10
+= 56
+
+## thu jul 23
+
+jog
+
+## wed jul 22
+
+hot
+
 ## tue jul 21
 
 16 + 16 + 13 + 10

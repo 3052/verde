@@ -371,6 +371,7 @@ https://justwatch.com/us/movie/romancing-the-stone
 
 - https://justwatch.com/us/movie/indiana-jones-and-the-raiders-of-the-lost-ark
 - https://justwatch.com/us/movie/possession-1981
+- https://justwatch.com/us/movie/thief
 
 ## 1983
 

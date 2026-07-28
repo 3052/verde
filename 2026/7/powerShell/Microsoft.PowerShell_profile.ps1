@@ -10,6 +10,9 @@ $androidPath = @()
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
+# 2026-07-27
+$androidPath += 'C:\ripgrep'
+
 # 2026-07-26
 $basePath += 'C:\N_m3u8DL-RE'
 
