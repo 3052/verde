@@ -1,14 +1,13 @@
 {
-   "experimental.detectURLs": false,
-   "profiles":
-   {
-       "list":
-       [
-           {
-               "name": "PowerShell",
-               "commandline": "powershell.exe",
-               "hidden": false
-           }
-       ]
-   }
+  "experimental.detectURLs": false,
+  "multiLinePasteWarning": false,
+  "profiles": {
+    "list": [
+      {
+        "name": "PowerShell",
+        "commandline": "powershell.exe",
+        "hidden": false
+      }
+    ]
+  }
 }

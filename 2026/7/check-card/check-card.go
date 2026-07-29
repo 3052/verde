@@ -25,6 +25,7 @@ var targets = []string{
    "SHAWARMA PRESS",
    "SPRING CREEK",
    "STARBUCKS",
+   "TIFF'S TREATS",
    "WENDY",
    "WHATABURGER",
 }
