@@ -58,7 +58,7 @@ func main() {
       var lastDate time.Time
 
       for _, txn := range validTransactions {
-         if strings.Contains(txn.Description, target) {
+         if matchTarget(txn, target) {
             count++
             // Update lastDate if this transaction is more recent
             if txn.Date.After(lastDate) {
@@ -89,6 +89,24 @@ func main() {
       fmt.Fprintf(os.Stderr, "Fatal error writing CSV: %v\n", err)
       os.Exit(1)
    }
+}
+
+// matchTarget determines if a transaction should be counted under the given target.
+// Special handling: TOM THUMB transactions with a price between $10 and $20
+// are reclassified as STARBUCKS.
+func matchTarget(txn Transaction, target string) bool {
+   // Special case: reclassify TOM THUMB as STARBUCKS if price is $10-$20
+   if target == "STARBUCKS" {
+      if strings.Contains(txn.Description, "TOM THUMB") {
+         amount := -txn.Amount // amount is stored as negative for debits
+         if amount >= 10.0 && amount <= 20.0 {
+            return true
+         }
+      }
+   }
+
+   // Default matching: check if target is a substring of the description
+   return strings.Contains(txn.Description, target)
 }
 
 // writeCSV safely writes the sorted results to standard output, returning any encoding errors.
@@ -135,6 +153,7 @@ type MatchResult struct {
 type Transaction struct {
    Description string
    Date        time.Time
+   Amount      float64
 }
 
 // extractRecentTransactions handles file I/O, regex, date parsing, and filtering.
@@ -150,11 +169,18 @@ func extractRecentTransactions(filename string, today time.Time, lookbackDays in
    scanner := bufio.NewScanner(file)
 
    dateRegex := regexp.MustCompile(`\b(\d{2}/\d{2})\b`)
+   amountRegex := regexp.MustCompile(`^-?\$?([\d,]+\.\d{2})$`)
+
+   // Buffer to hold description while we wait for the amount
+   var pendingDesc string
+   var pendingDate time.Time
+   var hasPending bool
 
    for scanner.Scan() {
       line := strings.TrimSpace(scanner.Text())
 
-      if line == "Description" {
+      switch {
+      case line == "Description":
          if scanner.Scan() {
             desc := strings.TrimSpace(scanner.Text())
 
@@ -172,14 +198,37 @@ func extractRecentTransactions(filename string, today time.Time, lookbackDays in
 
                   if parsedDate.After(cutoffDate) {
                      // Store both the description and the parsed date
-                     validTransactions = append(validTransactions, Transaction{
-                        Description: desc,
-                        Date:        parsedDate,
-                     })
+                     pendingDesc = desc
+                     pendingDate = parsedDate
+                     hasPending = true
                   }
 
                }
             }
+         }
+
+      case line == "Amount" && hasPending:
+         if scanner.Scan() {
+            amountStr := strings.TrimSpace(scanner.Text())
+            // Remove $ and , characters
+            cleanAmount := strings.ReplaceAll(amountStr, "$", "")
+            cleanAmount = strings.ReplaceAll(cleanAmount, ",", "")
+            cleanAmount = strings.TrimSpace(cleanAmount)
+
+            if match := amountRegex.FindStringSubmatch(cleanAmount); match != nil {
+               if amount, err := strconv.ParseFloat(match[1], 64); err == nil {
+                  // Preserve the sign (debits are negative)
+                  if strings.HasPrefix(cleanAmount, "-") {
+                     amount = -amount
+                  }
+                  validTransactions = append(validTransactions, Transaction{
+                     Description: pendingDesc,
+                     Date:        pendingDate,
+                     Amount:      amount,
+                  })
+               }
+            }
+            hasPending = false
          }
       }
    }
