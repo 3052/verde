@@ -29,7 +29,7 @@ type client struct {
 func (c *client) do() error {
    flag.StringVar(&c.address, "a", "", "address")
    flag.DurationVar(&c.sleep, "s", 99*time.Millisecond, "sleep")
-   flag.StringVar(&c.filters, "f", "BUY,CINEMA,FAST,RENT", "filters")
+   flag.StringVar(&c.filters, "f", "BUY,CINEMA,FAST,RENT", "filters (use -f= for none)")
    flag.Parse()
 
    if c.address != "" {
