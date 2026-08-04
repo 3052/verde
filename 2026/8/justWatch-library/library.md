@@ -1,12 +1,15 @@
 # library
 
+## 2026
+
+https://justwatch.com/us/tv-show/kokaku-kidotai
+
 ## 2025
 
 - https://justwatch.com/us/movie/companion
-- https://justwatch.com/us/movie/hamnet
 - https://justwatch.com/us/movie/if-i-had-legs-id-kick-you
 - https://justwatch.com/us/movie/marty-supreme
-- https://justwatch.com/us/movie/mission-impossible-8
+- https://justwatch.com/us/movie/oh-hi
 - https://justwatch.com/us/movie/one-battle-after-another-2025
 - https://justwatch.com/us/movie/presence
 - https://justwatch.com/us/movie/sentimental-value
@@ -46,6 +49,7 @@ https://justwatch.com/us/movie/mission-impossible-fallout
 ## 2017
 
 - https://justwatch.com/us/movie/blade-runner-2049
+- https://justwatch.com/us/movie/mollys-game
 - https://justwatch.com/us/movie/wind-river
 
 ## 2016
@@ -138,8 +142,7 @@ https://justwatch.com/us/movie/vicky-cristina-barcelona
 
 ## 2005
 
-- https://justwatch.com/us/movie/batman-begins
-- https://justwatch.com/us/movie/derailed
+https://justwatch.com/us/movie/batman-begins
 
 ## 2004
 
