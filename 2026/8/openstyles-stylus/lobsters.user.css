@@ -7,7 +7,7 @@
 */
 @-moz-document domain("lobste.rs") {
    :visited {
-      color: hsl(270 100% 50%);
+      color: hsl(270 100% 50%) !important;
    }
    .comments1 > .comments_subtree > .comments > .comments_subtree > .comment > .voters {
       background: blue;
