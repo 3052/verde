@@ -6,6 +6,7 @@ import (
    "flag"
    "fmt"
    "io/fs"
+   "math"
    "os"
    "os/exec"
    "path/filepath"
@@ -13,14 +14,8 @@ import (
    "strings"
 )
 
-// Constants for file sizes and limits
-const (
-   KB = 1024
-   MB = 1024 * KB
-   GB = 1024 * MB
-
-   SizeThreshold = 4 * int64(GB)
-)
+// SizeThreshold is the maximum allowed file size (max uint32).
+const SizeThreshold = int64(math.MaxUint32)
 
 var allowedExtensions = map[string]bool{
    ".mp4":  true,
@@ -162,8 +157,7 @@ func (a *Auditor) auditFile(path string, entry fs.DirEntry, err error) error {
 
    // --- RULE 1: Size Check ---
    if info.Size() > SizeThreshold {
-      sizeInGB := float64(info.Size()) / float64(GB)
-      flags = append(flags, fmt.Sprintf("%.2f GB", sizeInGB))
+      flags = append(flags, fmt.Sprintf("%d bytes", info.Size()))
    }
 
    // --- RULE 2: Extension Check ---

@@ -6,6 +6,7 @@
 ==/userstyle==
 */
 @-moz-document domain("google.com") {
-   /* 2022-02-23 */
-   #searchform { position: absolute !important }
+    :has(> #searchform) {
+        position: static !important;
+    }
 }
