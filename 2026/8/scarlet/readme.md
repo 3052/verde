@@ -50,3 +50,11 @@ scarlet -api-key YOUR_API_KEY
 scarlet -api-url https://open.bigmodel.cn/api/paas/v4/chat/completions
 scarlet -model glm-5.2
 ```
+
+# prior art
+
+- https://github.com/6Kmfi6HP/opencode2api
+- https://github.com/aarock1234/ai
+- https://github.com/mokeyjay/costrict-router
+- https://github.com/voocel/litellm
+- https://github.com/waylon256yhw/cmdgo
