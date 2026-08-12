@@ -31,16 +31,6 @@ and you can fix the starting folder like this:
 }
 ~~~
 
-## wezterm
-
-11 MB:
-
-https://github.com/microsoft/terminal/releases/tag/v1.20.11781.0
-
-63 MB:
-
-https://github.com/wez/wezterm/releases/tag/20240203-110809-5046fc22
-
 ## scrollToTop
 
 https://devblogs.microsoft.com/commandline/windows-terminal-preview-1-6-release
