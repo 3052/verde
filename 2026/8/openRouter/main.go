@@ -91,9 +91,9 @@ func main() {
       fmt.Fprintf(out, "Intelligence: %.1f\n", r.Intelligence)
       fmt.Fprintf(out, "Coding: %.1f\n", r.Coding)
       fmt.Fprintf(out, "Agentic: %.1f\n", r.Agentic)
-      fmt.Fprintf(out, "Input price: $%.2f / M tokens\n", r.InputPrice)
-      fmt.Fprintf(out, "Output price: $%.2f / M tokens\n", r.OutputPrice)
-      fmt.Fprintf(out, "Cache read price: $%.2f / M tokens\n", r.CacheReadPrice)
+      fmt.Fprintf(out, "Input price: $%.3f / M tokens\n", r.InputPrice)
+      fmt.Fprintf(out, "Output price: $%.3f / M tokens\n", r.OutputPrice)
+      fmt.Fprintf(out, "Cache read price: $%.3f / M tokens\n", r.CacheReadPrice)
    }
 
    fmt.Fprintf(out, "\nRanked %d models (out of %d total)\n",
