@@ -12,10 +12,13 @@ import (
    "path/filepath"
    "strconv"
    "strings"
+   "time"
 )
 
 // SizeThreshold is the maximum allowed file size (max uint32).
 const SizeThreshold = int64(math.MaxUint32)
+
+const min_bitrate = 2_500_000
 
 var allowedExtensions = map[string]bool{
    ".mp4":  true,
@@ -60,7 +63,7 @@ func main() {
    var minBitrate int64
 
    flag.StringVar(&rootDir, "dir", "", "Root directory to audit")
-   flag.Int64Var(&minBitrate, "min-bitrate", 2_400_000, "Minimum acceptable bitrate in bits per second")
+   flag.Int64Var(&minBitrate, "min-bitrate", min_bitrate, "Minimum acceptable bitrate in bits per second")
    flag.Parse()
 
    // Require the user to provide a directory via the flag
@@ -104,6 +107,27 @@ func main() {
    fmt.Println("Audit complete.")
 }
 
+// shouldExclude parses the exclude date and returns true if the folder should
+// be excluded. A folder is excluded only when the date is less than one year
+// old. Missing, empty, or invalid dates (and dates a year or older) are not
+// excluded.
+func shouldExclude(raw string) bool {
+   raw = strings.TrimSpace(raw)
+   if raw == "" {
+      return false
+   }
+
+   t, err := time.Parse(time.DateOnly, raw)
+   if err != nil {
+      // Unparseable date – treat as missing, do not exclude.
+      return false
+   }
+
+   // Exclude only when the date is less than one year old.
+   cutoff := time.Now().AddDate(-1, 0, 0)
+   return t.After(cutoff)
+}
+
 // AuditResult stores the path and the reasons why a file failed the audit.
 type AuditResult struct {
    Path  string
@@ -129,17 +153,18 @@ func (a *Auditor) auditFile(path string, entry fs.DirEntry, err error) error {
       metaPath := filepath.Join(path, "metadata.json")
       data, err := os.ReadFile(metaPath)
       if err == nil {
-         // File exists, check if "exclude" is true
+         // File exists, check the "exclude" date field.
          var meta struct {
-            Exclude bool `json:"exclude"`
+            Exclude string `json:"exclude"`
          }
-         if err := json.Unmarshal(data, &meta); err == nil {
-            if meta.Exclude {
-               fmt.Printf("Skipping excluded folder: %s\n", path)
-               // Record the excluded directory for the end summary
-               a.ExcludedDirs = append(a.ExcludedDirs, path)
-               return filepath.SkipDir // Bypasses the entire folder
-            }
+         if err := json.Unmarshal(data, &meta); err != nil {
+            return fmt.Errorf("invalid metadata.json in %s: %w", path, err)
+         }
+         if shouldExclude(meta.Exclude) {
+            fmt.Printf("Skipping excluded folder: %s\n", path)
+            // Record the excluded directory for the end summary
+            a.ExcludedDirs = append(a.ExcludedDirs, path)
+            return filepath.SkipDir // Bypasses the entire folder
          }
       }
       return nil
