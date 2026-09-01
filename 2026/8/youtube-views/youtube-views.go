@@ -6,7 +6,6 @@ import (
    "flag"
    "log"
    "net/http"
-   "net/url"
    "strconv"
    "strings"
    "time"
@@ -39,12 +38,6 @@ func format_integer(number int) string {
 }
 
 func main() {
-   http.DefaultTransport = &http.Transport{
-      Proxy: func(req *http.Request) (*url.URL, error) {
-         log.Println(req.Method, req.URL)
-         return nil, nil
-      },
-   }
    log.SetFlags(log.Ltime)
    var tube InnerTube
    tube.Context.Client.ClientName = web
