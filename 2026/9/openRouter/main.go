@@ -1,102 +1,95 @@
+// tp-rank: rank open-weights OpenRouter models by the median of
+// per-provider p50 throughput.
+//
+//   go run . [-min-intelligence 40] [-json out.json]
 package main
 
 import (
+   "encoding/json"
    "flag"
    "fmt"
+   "net/http"
    "os"
+   "sort"
+   "text/tabwriter"
+   "time"
 )
 
 func main() {
-   openOnly := flag.Bool("open", false,
-      "only show models with open weights")
-   imageOnly := flag.Bool("image", false,
-      "only show models that accept image input")
-   export := flag.Bool("export", false,
-      "fetch models and print them sorted by intelligence")
+   var (
+      minIntelligence = flag.Float64("min-intelligence", 0,
+         "drop candidates below this AA intelligence index (0 = no filter)")
+      outJSON = flag.String("json", "", "also write results to this file")
+   )
    flag.Parse()
 
    // No flags -> do nothing.
-   if !*export {
+   if flag.NFlag() == 0 {
       flag.Usage()
       return
    }
 
-   // Fetch
-   url := "https://openrouter.ai/api/frontend/v1/models/find?active=true"
-   fmt.Fprintf(os.Stderr, "Fetching from %s ...\n", url)
-   apiResp, err := FetchAndParse(url)
-   if err != nil {
-      fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+   if err := run(*minIntelligence, *outJSON); err != nil {
+      fmt.Fprintf(os.Stderr, "%v\n", err)
       os.Exit(1)
    }
-
-   // Build model data
-   rows := BuildModelData(apiResp)
-
-   // Filter by open weights if specified
-   if *openOnly {
-      var filtered []ModelData
-      for _, r := range rows {
-         if r.HfSlug != "" {
-            filtered = append(filtered, r)
-         }
-      }
-      rows = filtered
-   }
-
-   // Filter by image input if specified
-   if *imageOnly {
-      var filtered []ModelData
-      for _, r := range rows {
-         if r.HasImage {
-            filtered = append(filtered, r)
-         }
-      }
-      rows = filtered
-   }
-
-   // Filter+sort by intelligence
-   key := "intelligence"
-   results := FilterAndSort(rows, key)
-
-   out := os.Stdout
-   fmt.Fprintf(out, "Sorted by: %s descending\n", key)
-   if *openOnly {
-      fmt.Fprintln(out, "Filter: open weights only")
-   }
-   if *imageOnly {
-      fmt.Fprintln(out, "Filter: image input only")
-   }
-
-   if len(results) == 0 {
-      fmt.Fprintln(out, "No models match the criteria")
-      fmt.Fprintf(os.Stderr, "Printed 0 models\n")
-      return
-   }
-
-   for _, r := range results {
-      fmt.Fprintln(out)
-      fmt.Fprintf(out, "Model: %s\n", r.Name)
-      fmt.Fprintf(out, "Created: %s\n", r.CreatedAt)
-      fmt.Fprintf(out, "Context length: %d tokens\n", r.ContextLength)
-      if r.HfSlug != "" {
-         fmt.Fprintf(out, "Model weights: %s\n", r.HfSlug)
-      }
-      if r.HasImage {
-         fmt.Fprintln(out, "Image input: yes")
-      }
-      if r.Elo > 0 {
-         fmt.Fprintf(out, "Arena ELO: %d\n", r.Elo)
-      }
-      fmt.Fprintf(out, "Intelligence: %.1f\n", r.Intelligence)
-      fmt.Fprintf(out, "Coding: %.1f\n", r.Coding)
-      fmt.Fprintf(out, "Agentic: %.1f\n", r.Agentic)
-      fmt.Fprintf(out, "Input price: $%.3f / M tokens\n", r.InputPrice)
-      fmt.Fprintf(out, "Output price: $%.3f / M tokens\n", r.OutputPrice)
-      fmt.Fprintf(out, "Cache read price: $%.3f / M tokens\n", r.CacheReadPrice)
-   }
-
-   fmt.Fprintf(out, "\nRanked %d models (out of %d total)\n",
-      len(results), len(rows))
-   fmt.Fprintf(os.Stderr, "Printed %d models\n", len(results))
 }
+
+func run(minIntelligence float64, outJSON string) error {
+   client := &http.Client{Timeout: 30 * time.Second}
+
+   // --- 1. Catalog: one request, filter to open weights.
+   cands, total, err := fetchCandidates(client, minIntelligence)
+   if err != nil {
+      return fmt.Errorf("catalog: %w", err)
+   }
+   fmt.Fprintf(os.Stderr, "%d models in catalog, %d open-weights candidates\n",
+      total, len(cands))
+   if len(cands) == 0 {
+      return fmt.Errorf("no candidates matched")
+   }
+
+   // --- 2. Providers: sequential, one request per candidate. A failed
+   // request is reported and skipped — no retries.
+   var scored []score
+   for i, cd := range cands {
+      s := fetchScore(client, cd)
+      fmt.Fprintf(os.Stderr, "[%d/%d] %-50s ", i+1, len(cands), cd.slug)
+      if s.Error != "" {
+         fmt.Fprintf(os.Stderr, "error: %s\n", s.Error)
+         continue
+      }
+      fmt.Fprintf(os.Stderr, "%d providers, median %.1f tps\n",
+         len(s.Providers), s.MedianThroughput)
+      if len(s.Providers) > 0 {
+         scored = append(scored, s)
+      }
+   }
+
+   // --- 3. Sort by median throughput, descending.
+   sort.Slice(scored, func(i, j int) bool {
+      return scored[i].MedianThroughput > scored[j].MedianThroughput
+   })
+
+   w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+   fmt.Fprintln(w, "MED TPS\tPROV\tINTEL\tMODEL")
+   for _, s := range scored {
+      fmt.Fprintf(w, "%.1f\t%d\t%.1f\t%s\n",
+         s.MedianThroughput, len(s.Providers), s.Intelligence, s.Model)
+   }
+   w.Flush()
+   fmt.Fprintf(os.Stderr, "ranked %d of %d candidates\n", len(scored), len(cands))
+
+   if outJSON != "" {
+      b, err := json.MarshalIndent(scored, "", "  ")
+      if err == nil {
+         err = os.WriteFile(outJSON, b, 0o644)
+      }
+      if err != nil {
+         return fmt.Errorf("writing json: %w", err)
+      }
+   }
+   return nil
+}
+
+// main.go
