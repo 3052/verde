@@ -61,13 +61,13 @@ func run(minIntelligence float64) error {
       scored = append(scored, &s)
    }
 
-   // --- 3. Sort by median of p75 throughputs, descending.
+   // --- 3. Sort by median p50 throughputs, descending.
    slices.SortFunc(scored, func(a, b *score) int {
-      return cmp.Compare(b.Medians[1], a.Medians[1])
+      return cmp.Compare(b.Medians[0], a.Medians[0])
    })
 
    w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-   fmt.Fprintln(w, "Sorted by: median P75 (second column), descending")
+   fmt.Fprintln(w, "Sorted by: median P50 (first column), descending")
    fmt.Fprintln(w)
    fmt.Fprintln(w, "P50\tP75\tP90\tP95\tP99\tPROV\tINTEL\tMODEL")
    for _, s := range scored {
