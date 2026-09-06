@@ -61,19 +61,20 @@ func run(minIntelligence float64) error {
       scored = append(scored, &s)
    }
 
-   // --- 3. Sort by median p50 throughputs, descending.
+   // --- 3. Sort by intelligence, descending.
    slices.SortFunc(scored, func(a, b *score) int {
-      return cmp.Compare(b.Medians[0], a.Medians[0])
+      return cmp.Compare(b.Intelligence, a.Intelligence)
    })
 
    w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-   fmt.Fprintln(w, "Sorted by: median P50 (first column), descending")
+   fmt.Fprintln(w, "Sorted by: intelligence (first column), descending")
    fmt.Fprintln(w)
-   fmt.Fprintln(w, "P50\tP75\tP90\tP95\tP99\tPROV\tINTEL\tMODEL")
+   fmt.Fprintln(w, "INTEL\tP50\tP75\tP90\tP95\tP99\tPROV\tMODEL")
    for _, s := range scored {
-      fmt.Fprintf(w, "%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%d\t%.1f\t%s\n",
+      fmt.Fprintf(w, "%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%d\t%s\n",
+         s.Intelligence,
          s.Medians[0], s.Medians[1], s.Medians[2], s.Medians[3], s.Medians[4],
-         len(s.Providers), s.Intelligence, s.Model)
+         len(s.Providers), s.Model)
    }
    w.Flush()
    fmt.Fprintf(os.Stderr, "ranked %d of %d candidates\n", len(scored), len(cands))
