@@ -153,21 +153,25 @@ type findResponse struct {
    } `json:"data"`
 }
 
-// Both per-provider throughput percentiles, tokens/sec.
+// Per-provider p50 throughput, tokens/sec.
 type providerStat struct {
-   Provider string    `json:"provider"`
-   TPS      []float64 `json:"tps_p50_p75"`
+   Provider string  `json:"provider"`
+   P50      float64 `json:"p50_throughput"`
 }
 
 type score struct {
    Model        string  `json:"model"`
    Name         string  `json:"name"`
    Intelligence float64 `json:"intelligence"`
-   // Medians[i] is the median across providers of throughput
-   // percentile i, for i in {50, 75} (in that order).
-   Medians   [2]float64     `json:"median_tps_p50_p75"`
+   // MedianP50 is the median across providers of p50 throughput,
+   // tokens/sec.
+   MedianP50 float64        `json:"median_p50_tps"`
    Providers []providerStat `json:"providers"`
-   Error     string         `json:"error,omitempty"`
+   // Combined is assigned after all scores are fetched: a 0-100 blend of
+   // intelligence, median p50 throughput, and provider count. Higher is
+   // better.
+   Combined float64 `json:"combined,omitempty"`
+   Error    string  `json:"error,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -190,8 +194,8 @@ func fetchScore(c *http.Client, cd candidate) score {
       return s
    }
 
-   // One slice per percentile level, each holding one value per provider.
-   var byLevel [2][]float64
+   // One p50 throughput value per provider.
+   var p50s []float64
    for _, ep := range sr.Data {
       if ep.Stats == nil {
          continue // no stats -> no data -> excluded
@@ -202,26 +206,17 @@ func fetchScore(c *http.Client, cd candidate) score {
       if quantBits(ep.Quantization) < 8 {
          continue
       }
-      tps := []float64{
-         ep.Stats.P50Throughput,
-         ep.Stats.P75Throughput,
-      }
-      s.Providers = append(s.Providers, providerStat{Provider: ep.ProviderName, TPS: tps})
-      for i, v := range tps {
-         byLevel[i] = append(byLevel[i], v)
-      }
+      s.Providers = append(s.Providers, providerStat{Provider: ep.ProviderName, P50: ep.Stats.P50Throughput})
+      p50s = append(p50s, ep.Stats.P50Throughput)
    }
-   for i := range byLevel {
-      slices.Sort(byLevel[i])
-      s.Medians[i] = percentile(byLevel[i], 50)
-   }
+   slices.Sort(p50s)
+   s.MedianP50 = percentile(p50s, 50)
    return s
 }
 
-// Per-provider throughput percentiles, tokens/sec.
+// Per-provider p50 throughput, tokens/sec.
 type statDetails struct {
    P50Throughput float64 `json:"p50_throughput"`
-   P75Throughput float64 `json:"p75_throughput"`
 }
 
 type statEndpoint struct {
