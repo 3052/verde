@@ -62,6 +62,24 @@ func percentile(sorted []float64, p float64) float64 {
    return sorted[lo] + frac*(sorted[lo+1]-sorted[lo])
 }
 
+// quantBits returns the bit width encoded in a quantization label
+// (e.g. "fp8" -> 8, "bf16" -> 16). It returns -1 when the label carries
+// no width, such as "unknown".
+func quantBits(q string) int {
+   i := len(q)
+   for i > 0 && q[i-1] >= '0' && q[i-1] <= '9' {
+      i--
+   }
+   if i == len(q) {
+      return -1
+   }
+   n := 0
+   for _, c := range q[i:] {
+      n = n*10 + int(c-'0')
+   }
+   return n
+}
+
 type benchmarks struct {
    AA *struct {
       IntelligenceIndex float64 `json:"intelligence_index"`
@@ -135,10 +153,10 @@ type findResponse struct {
    } `json:"data"`
 }
 
-// All five per-provider throughput percentiles, tokens/sec.
+// Both per-provider throughput percentiles, tokens/sec.
 type providerStat struct {
    Provider string    `json:"provider"`
-   TPS      []float64 `json:"tps_p50_p75_p90_p95_p99"`
+   TPS      []float64 `json:"tps_p50_p75"`
 }
 
 type score struct {
@@ -146,8 +164,8 @@ type score struct {
    Name         string  `json:"name"`
    Intelligence float64 `json:"intelligence"`
    // Medians[i] is the median across providers of throughput
-   // percentile i, for i in {50, 75, 90, 95, 99} (in that order).
-   Medians   [5]float64     `json:"median_tps_p50_p75_p90_p95_p99"`
+   // percentile i, for i in {50, 75} (in that order).
+   Medians   [2]float64     `json:"median_tps_p50_p75"`
    Providers []providerStat `json:"providers"`
    Error     string         `json:"error,omitempty"`
 }
@@ -173,17 +191,20 @@ func fetchScore(c *http.Client, cd candidate) score {
    }
 
    // One slice per percentile level, each holding one value per provider.
-   var byLevel [5][]float64
+   var byLevel [2][]float64
    for _, ep := range sr.Data {
       if ep.Stats == nil {
          continue // no stats -> no data -> excluded
       }
+      // Keep only known quantizations at 8 bits or more; unknown and
+      // lower precision are excluded because they trade quality for
+      // throughput.
+      if quantBits(ep.Quantization) < 8 {
+         continue
+      }
       tps := []float64{
          ep.Stats.P50Throughput,
          ep.Stats.P75Throughput,
-         ep.Stats.P90Throughput,
-         ep.Stats.P95Throughput,
-         ep.Stats.P99Throughput,
       }
       s.Providers = append(s.Providers, providerStat{Provider: ep.ProviderName, TPS: tps})
       for i, v := range tps {
@@ -201,13 +222,11 @@ func fetchScore(c *http.Client, cd candidate) score {
 type statDetails struct {
    P50Throughput float64 `json:"p50_throughput"`
    P75Throughput float64 `json:"p75_throughput"`
-   P90Throughput float64 `json:"p90_throughput"`
-   P95Throughput float64 `json:"p95_throughput"`
-   P99Throughput float64 `json:"p99_throughput"`
 }
 
 type statEndpoint struct {
    ProviderName string       `json:"provider_name"`
+   Quantization string       `json:"quantization"`
    Stats        *statDetails `json:"stats"`
 }
 

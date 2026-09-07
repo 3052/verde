@@ -10,6 +10,9 @@ $androidPath = @()
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
+# 2026-09-06
+$basePath += 'C:\turso_cli'
+
 # 2026-09-02
 $basePath += 'C:\hugo'
 

@@ -11,7 +11,6 @@ import (
    "net/http"
    "os"
    "slices"
-   "text/tabwriter"
    "time"
 )
 
@@ -65,18 +64,16 @@ func run(minIntelligence float64) error {
    slices.SortFunc(scored, func(a, b *score) int {
       return cmp.Compare(b.Intelligence, a.Intelligence)
    })
+   fmt.Fprintf(os.Stderr, "sorted by intelligence, descending\n")
 
-   w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-   fmt.Fprintln(w, "Sorted by: intelligence (first column), descending")
-   fmt.Fprintln(w)
-   fmt.Fprintln(w, "INTEL\tP50\tP75\tP90\tP95\tP99\tPROV\tMODEL")
    for _, s := range scored {
-      fmt.Fprintf(w, "%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%d\t%s\n",
-         s.Intelligence,
-         s.Medians[0], s.Medians[1], s.Medians[2], s.Medians[3], s.Medians[4],
-         len(s.Providers), s.Model)
+      fmt.Printf("model: %s\n", s.Model)
+      fmt.Printf("intelligence: %.1f\n", s.Intelligence)
+      fmt.Printf("median p50 tps: %.1f\n", s.Medians[0])
+      fmt.Printf("median p75 tps: %.1f\n", s.Medians[1])
+      fmt.Printf("providers: %d\n", len(s.Providers))
+      fmt.Println()
    }
-   w.Flush()
    fmt.Fprintf(os.Stderr, "ranked %d of %d candidates\n", len(scored), len(cands))
 
    return nil
