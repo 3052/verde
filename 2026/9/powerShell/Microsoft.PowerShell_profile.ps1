@@ -11,6 +11,8 @@ $androidPath = @()
 # ────────────────────────────────────────────────────────────────────
 
 # 2026-09-07
+$basePath += 'C:\less'
+$basePath += 'C:\neocities-deploy'
 $basePath += 'C:\sqlite-tools'
 
 # 2026-09-02
@@ -45,9 +47,7 @@ $basePath += 'C:\curl\bin'
 $basePath += 'C:\fd'
 $basePath += 'C:\gdu_windows_amd64'
 $basePath += 'C:\go\bin'
-$basePath += 'C:\less-x64'
 $basePath += 'C:\mitmproxy'
-$basePath += 'C:\neocities-deploy-Windows-x86_64'
 $basePath += 'C:\rclone'
 $basePath += 'C:\ripgrep'
 $basePath += 'C:\staticcheck'

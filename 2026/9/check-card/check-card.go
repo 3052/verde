@@ -24,6 +24,7 @@ var targets = []string{
    "SCHLOTZSKYS",
    "SHAKE SHACK",
    "SHAWARMA PRESS",
+   "SPRING CREEK",
    "STARBUCKS",
    "TIFF'S TREATS",
    "WENDY",
