@@ -17,9 +17,14 @@
 
 ## aug 31
 
-- last summer 2
-- last 101
+last summer 2
+
+---------------------------------
 
 ## sep 8
+
+last 101
+
+## sep 12
 
 last 100
