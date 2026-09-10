@@ -1,0 +1,21 @@
+{
+  "manifest_version": 2,
+
+  "name": "Long-press Mark Visited",
+  "version": "1.0.0",
+  "description": "Long-pressing a link marks it visited locally, with no network use.",
+
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "longpress-visited-yourname@example.com"
+    }
+  }
+}
