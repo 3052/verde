@@ -4,10 +4,9 @@ package main
 import (
    "encoding/json"
    "fmt"
-   "io"
    "net/http"
-   "net/url"
    "slices"
+   "strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,219 +18,258 @@ const catalogURL = "https://openrouter.ai/api/frontend/v1/models/find?active=tru
 
 // Per-model request for provider throughput stats (confirmed by capture).
 // Response is {"data": [ {provider_name, stats: {p50_throughput, ...}}, ... ]}.
-const statsURLTemplate = "https://openrouter.ai/api/frontend/v1/stats/endpoint" +
-   "?latencyMetric=latency&perfWorkload=text_generation&variant=standard&permaslug=%s"
 
-func httpGet(c *http.Client, url string) ([]byte, error) {
-   req, err := http.NewRequest(http.MethodGet, url, nil)
-   if err != nil {
-      return nil, err
+// Model page: one request per candidate carries everything — the
+// AutoExacto scores array and the per-endpoint stats array are both
+// embedded in the page payload as escaped JSON inside a script tag
+// (confirmed by capture). There are no JSON endpoints for either.
+// The page path is the model slug, NOT the permaslug — the permaslug
+// page route errors, and escaping the slug is wrong too because
+// PathEscape turns the "/" into "%2F" (verified live).
+const pageURLTemplate = "https://openrouter.ai/%s"
+
+// Marker for the start of one embedded score object, in its escaped
+// form: {\"provider_name\":...
+const scoreMarker = `{\"provider_name\"`
+
+// Marker inside every embedded stats object, in its escaped form:
+// \"p50_throughput\":...
+const statsMarker = `\"p50_throughput\"`
+
+// fetchGPQA returns one GPQA Diamond aggregate per provider from the
+// scores array embedded in the model page payload. A provider can have
+// several endpoints with separate scores (e.g. Baseten fp8 and bf16);
+// the entry with the most runs is kept as the most reliable, and all of
+// the provider's endpoint ids are collected for the tps join.
+func fetchGPQA(html string) (map[string]providerGPQA, error) {
+   out := make(map[string]providerGPQA)
+   i := strings.Index(html, scoreMarker)
+   for i >= 0 {
+      // Brace-count to the end of the object; braces are not escaped,
+      // only quotes are.
+      end := findObjectEnd(html, i)
+      if end < 0 {
+         break // unterminated -> malformed payload, stop
+      }
+      esc := html[i : end+1]
+
+      next := strings.Index(html[end+1:], scoreMarker)
+      if next < 0 {
+         i = -1
+      } else {
+         i = end + 1 + next
+      }
+
+      // The escaped body is the content of a JSON string: wrap it in
+      // quotes and decode twice.
+      var decoded string
+      if err := json.Unmarshal([]byte("\""+esc+"\""), &decoded); err != nil {
+         continue
+      }
+      var s autoExactoScore
+      if err := json.Unmarshal([]byte(decoded), &s); err != nil {
+         continue
+      }
+      if s.BenchmarkType != "gpqa_diamond" {
+         continue
+      }
+      g, seen := out[s.ProviderName]
+      // The entry with the most runs is kept as the most reliable.
+      if !seen || s.RunCount > g.RunCount {
+         g.GPQA = s.Score
+         g.RunCount = s.RunCount
+      }
+      if s.EndpointID != "" && !slices.Contains(g.EndpointIDs, s.EndpointID) {
+         g.EndpointIDs = append(g.EndpointIDs, s.EndpointID)
+      }
+      out[s.ProviderName] = g
    }
-   req.Header.Set("User-Agent", "tp-rank/1.0")
-   resp, err := c.Do(req)
-   if err != nil {
-      return nil, err
+   if len(out) == 0 {
+      return nil, fmt.Errorf("no gpqa_diamond scores in page payload")
    }
-   defer resp.Body.Close()
-   if resp.StatusCode != http.StatusOK {
-      return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+   return out, nil
+}
+
+// fetchP50s returns p50 throughput per endpoint id from the stats array
+// embedded in the model page payload.
+func fetchP50s(html string) map[string]float64 {
+   out := make(map[string]float64)
+   i := strings.Index(html, statsMarker)
+   for i >= 0 {
+      start := findObjectStart(html, i)
+      if start < 0 {
+         break
+      }
+      end := findObjectEnd(html, start)
+      if end < 0 {
+         break // unterminated -> malformed payload, stop
+      }
+      esc := html[start : end+1]
+
+      next := strings.Index(html[end+1:], statsMarker)
+      if next < 0 {
+         i = -1
+      } else {
+         i = end + 1 + next
+      }
+
+      // The escaped body is the content of a JSON string: wrap it in
+      // quotes and decode twice.
+      var decoded string
+      if err := json.Unmarshal([]byte("\""+esc+"\""), &decoded); err != nil {
+         continue
+      }
+      var st pageEndpointStats
+      if err := json.Unmarshal([]byte(decoded), &st); err != nil {
+         continue
+      }
+      if st.ID != "" {
+         out[st.ID] = st.P50Throughput
+      }
    }
-   return io.ReadAll(resp.Body)
+   return out
 }
 
 // ---------------------------------------------------------------------------
 // Math / HTTP helpers
 // ---------------------------------------------------------------------------
 
-// percentile returns the p-th percentile of ascending-sorted data with
-// linear interpolation (numpy's default method): fractional index
-// i = (p/100) * (n-1), interpolate between neighbors.
-func percentile(sorted []float64, p float64) float64 {
-   n := len(sorted)
-   if n == 0 {
-      return 0
-   }
-   if n == 1 {
-      return sorted[0]
-   }
-   i := p / 100 * float64(n-1)
-   lo := int(i)
-   if lo+1 >= n {
-      return sorted[n-1]
-   }
-   frac := i - float64(lo)
-   return sorted[lo] + frac*(sorted[lo+1]-sorted[lo])
-}
-
 // quantBits returns the bit width encoded in a quantization label
 // (e.g. "fp8" -> 8, "bf16" -> 16). It returns -1 when the label carries
 // no width, such as "unknown".
-func quantBits(q string) int {
-   i := len(q)
-   for i > 0 && q[i-1] >= '0' && q[i-1] <= '9' {
-      i--
+
+// findObjectEnd returns the index of the '}' closing the object that
+// opens at start, or -1. Braces are not escaped in the payload, only
+// quotes are.
+func findObjectEnd(html string, start int) int {
+   depth := 0
+   for j := start; j < len(html); j++ {
+      switch html[j] {
+      case '{':
+         depth++
+      case '}':
+         depth--
+         if depth == 0 {
+            return j
+         }
+      }
    }
-   if i == len(q) {
-      return -1
-   }
-   n := 0
-   for _, c := range q[i:] {
-      n = n*10 + int(c-'0')
-   }
-   return n
+   return -1
 }
 
-type benchmarks struct {
-   AA *struct {
-      IntelligenceIndex float64 `json:"intelligence_index"`
-   } `json:"aa"`
+// findObjectStart returns the index of the '{' opening the object that
+// contains position i, or -1. Scanning backwards, a '}' raises the depth
+// and a '{' at depth zero is the opening brace.
+func findObjectStart(html string, i int) int {
+   depth := 0
+   for j := i; j >= 0; j-- {
+      switch html[j] {
+      case '}':
+         depth++
+      case '{':
+         if depth == 0 {
+            return j
+         }
+         depth--
+      }
+   }
+   return -1
+}
+
+// autoExactoScore is one entry of the scores array embedded in the model
+// page payload (confirmed by capture).
+type autoExactoScore struct {
+   ProviderName  string  `json:"provider_name"`
+   BenchmarkType string  `json:"benchmark_type"`
+   Score         float64 `json:"score"`
+   RunCount      int     `json:"run_count"`
+   EndpointID    string  `json:"endpoint_id"` // null -> empty (auto-routing)
+   DisplayName   string  `json:"display_name"`
+}
+
+// pageEndpointStats is one entry of the per-endpoint stats array embedded
+// in the model page payload (confirmed by capture). The window is short
+// (window_minutes: 30) and values are integers; quantization is not part
+// of this payload.
+type pageEndpointStats struct {
+   ID            string  `json:"endpoint_id"`
+   P50Throughput float64 `json:"p50_throughput"`
+}
+
+// providerGPQA aggregates one provider's AutoExacto GPQA entries: the
+// kept score plus every endpoint id the provider was scored on, for the
+// tps join.
+type providerGPQA struct {
+   GPQA        float64
+   RunCount    int
+   EndpointIDs []string
 }
 
 // ---------------------------------------------------------------------------
 // Working types
 // ---------------------------------------------------------------------------
 
-type candidate struct {
-   slug         string
-   name         string
-   intelligence float64
-}
-
-// ---------------------------------------------------------------------------
-// Catalog: single request -> open-weights candidates
-// ---------------------------------------------------------------------------
-
-func fetchCandidates(c *http.Client, minIntelligence float64) ([]candidate, int, error) {
-   body, err := httpGet(c, catalogURL)
-   if err != nil {
-      return nil, 0, err
-   }
-   var resp findResponse
-   if err := json.Unmarshal(body, &resp); err != nil {
-      return nil, 0, fmt.Errorf("decoding catalog: %w", err)
-   }
-
-   total := len(resp.Data.Models)
-   seen := make(map[string]bool)
-   var cands []candidate
-   for _, m := range resp.Data.Models {
-      // Open weights = weights published on Hugging Face.
-      if m.Permaslug == "" || m.HfSlug == "" {
-         continue
-      }
-      // The catalog can contain duplicate entries per permaslug.
-      if seen[m.Permaslug] {
-         continue
-      }
-      seen[m.Permaslug] = true
-
-      cd := candidate{slug: m.Permaslug, name: m.Name}
-      if b, ok := resp.Data.Benchmarks[m.Permaslug]; ok && b.AA != nil {
-         cd.intelligence = b.AA.IntelligenceIndex
-      }
-      if minIntelligence > 0 && cd.intelligence < minIntelligence {
-         continue
-      }
-      cands = append(cands, cd)
-   }
-   return cands, total, nil
-}
-
-type catalogModel struct {
-   Permaslug string `json:"permaslug"`
-   Name      string `json:"name"`
-   HfSlug    string `json:"hf_slug"` // non-empty == open weights
-}
-
-// ---------------------------------------------------------------------------
-// Catalog types (from the models/find payload)
-// ---------------------------------------------------------------------------
-
-type findResponse struct {
-   Data struct {
-      Models     []catalogModel        `json:"models"`
-      Benchmarks map[string]benchmarks `json:"benchmarks"`
-   } `json:"data"`
-}
-
-// Per-provider p50 throughput, tokens/sec.
-type providerStat struct {
-   Provider string  `json:"provider"`
-   P50      float64 `json:"p50_throughput"`
-}
-
-type score struct {
-   Model        string  `json:"model"`
-   Name         string  `json:"name"`
-   Intelligence float64 `json:"intelligence"`
-   // MedianP50 is the median across providers of p50 throughput,
-   // tokens/sec.
-   MedianP50 float64        `json:"median_p50_tps"`
-   Providers []providerStat `json:"providers"`
-   // Combined is assigned after all scores are fetched: a 0-100 blend of
-   // intelligence, median p50 throughput, and provider count. Higher is
-   // better.
-   Combined float64 `json:"combined,omitempty"`
-   Error    string  `json:"error,omitempty"`
-}
-
-// ---------------------------------------------------------------------------
-// Providers: one request per candidate, sequential, no retry
-// ---------------------------------------------------------------------------
-
-func fetchScore(c *http.Client, cd candidate) score {
-   s := score{Model: cd.slug, Name: cd.name, Intelligence: cd.intelligence}
-
-   u := fmt.Sprintf(statsURLTemplate, url.QueryEscape(cd.slug))
-   body, err := httpGet(c, u)
-   if err != nil {
-      s.Error = err.Error()
-      return s
-   }
-
-   var sr statsResponse
-   if err := json.Unmarshal(body, &sr); err != nil {
-      s.Error = "decode: " + err.Error()
-      return s
-   }
-
-   // One p50 throughput value per provider.
-   var p50s []float64
-   for _, ep := range sr.Data {
-      if ep.Stats == nil {
-         continue // no stats -> no data -> excluded
-      }
-      // Keep only known quantizations at 8 bits or more; unknown and
-      // lower precision are excluded because they trade quality for
-      // throughput.
-      if quantBits(ep.Quantization) < 8 {
-         continue
-      }
-      s.Providers = append(s.Providers, providerStat{Provider: ep.ProviderName, P50: ep.Stats.P50Throughput})
-      p50s = append(p50s, ep.Stats.P50Throughput)
-   }
-   slices.Sort(p50s)
-   s.MedianP50 = percentile(p50s, 50)
-   return s
-}
-
-// Per-provider p50 throughput, tokens/sec.
-type statDetails struct {
-   P50Throughput float64 `json:"p50_throughput"`
-}
-
-type statEndpoint struct {
-   ProviderName string       `json:"provider_name"`
-   Quantization string       `json:"quantization"`
-   Stats        *statDetails `json:"stats"`
+// row is one model + one provider: the flat unit of output.
+type row struct {
+   Model    string
+   Name     string
+   Provider string
+   // GPQA is the provider's AutoExacto GPQA Diamond score, 0..1.
+   GPQA float64
+   // P50 is that provider's median p50 throughput, tokens/sec.
+   P50 float64
 }
 
 // ---------------------------------------------------------------------------
 // Stats types (from the stats/endpoint payload, confirmed by capture)
 // ---------------------------------------------------------------------------
 
-type statsResponse struct {
-   Data []statEndpoint `json:"data"`
+// ---------------------------------------------------------------------------
+// Providers: one request per candidate, sequential, no retry
+// ---------------------------------------------------------------------------
+
+// fetchRows returns one row per provider: provider, GPQA Diamond score,
+// and median p50 throughput, all from a single model page request. A row
+// is emitted only when the provider has both a GPQA score and a tps
+// measurement.
+func fetchRows(c *http.Client, cd candidate) ([]row, error) {
+   body, err := httpGet(c, fmt.Sprintf(pageURLTemplate, cd.pageSlug))
+   if err != nil {
+      return nil, err
+   }
+   html := string(body)
+
+   gpqaByProvider, err := fetchGPQA(html)
+   if err != nil {
+      return nil, err
+   }
+   p50ByEndpoint := fetchP50s(html)
+
+   var rows []row
+   for provider, g := range gpqaByProvider {
+      // One p50 throughput value per provider.
+      // A provider can appear on several endpoints (e.g. different
+      // quantizations), so all of its p50s are collected here and reduced
+      // to one median below.
+      var p50s []float64
+      for _, id := range g.EndpointIDs {
+         if p50, ok := p50ByEndpoint[id]; ok {
+            p50s = append(p50s, p50)
+         }
+      }
+      if len(p50s) == 0 {
+         continue // no throughput for this provider -> no row
+      }
+      slices.Sort(p50s)
+      rows = append(rows, row{
+         Model:    cd.slug,
+         Name:     cd.name,
+         Provider: provider,
+         GPQA:     g.GPQA,
+         P50:      percentile(p50s, 50),
+      })
+   }
+   return rows, nil
 }
 
 // api.go
