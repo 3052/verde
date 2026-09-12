@@ -1,4 +1,5 @@
-// main.go
+// main.go marker - preserve
+
 package main
 
 import (
@@ -135,7 +136,7 @@ func run(minIntelligence float64) error {
    var rows []row
    for i, cd := range cands {
       fmt.Fprintf(os.Stderr, "[%d/%d] %s ", i+1, len(cands), cd.slug)
-      rs, err := fetchRows(client, cd)
+      rs, err := fetchRows(client, &cd)
       if err != nil {
          fmt.Fprintf(os.Stderr, "error: %v\n", err)
          continue
@@ -244,4 +245,4 @@ type findResponse struct {
    } `json:"data"`
 }
 
-// main.go - keep
+// main.go marker - preserve
