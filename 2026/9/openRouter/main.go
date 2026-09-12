@@ -185,7 +185,14 @@ type candidate struct {
 // ---------------------------------------------------------------------------
 
 func fetchCandidates(c *http.Client, minIntelligence float64) ([]candidate, int, error) {
-   body, err := httpGet(c, catalogURL)
+   // The intelligence filter is applied server-side: the models page
+   // appends min_intelligence_index to the find request (confirmed by
+   // capture). Zero means no filter.
+   url := catalogURL
+   if minIntelligence > 0 {
+      url = fmt.Sprintf("%s&min_intelligence_index=%g", catalogURL, minIntelligence)
+   }
+   body, err := httpGet(c, url)
    if err != nil {
       return nil, 0, err
    }
@@ -211,11 +218,9 @@ func fetchCandidates(c *http.Client, minIntelligence float64) ([]candidate, int,
       cd := candidate{slug: m.Permaslug, name: m.Name}
       // The page lives at the model slug, not the permaslug.
       cd.pageSlug = modelPageSlug(m.Permaslug)
+      // Display only — the filter was already applied server-side.
       if b, ok := resp.Data.Benchmarks[m.Permaslug]; ok && b.AA != nil {
          cd.intelligence = b.AA.IntelligenceIndex
-      }
-      if minIntelligence > 0 && cd.intelligence < minIntelligence {
-         continue
       }
       cands = append(cands, cd)
    }
@@ -239,4 +244,4 @@ type findResponse struct {
    } `json:"data"`
 }
 
-// main.go
+// main.go - keep

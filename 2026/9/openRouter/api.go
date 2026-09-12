@@ -272,4 +272,4 @@ func fetchRows(c *http.Client, cd candidate) ([]row, error) {
    return rows, nil
 }
 
-// api.go
+// api.go - keep
