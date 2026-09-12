@@ -6,8 +6,8 @@ import (
    "bytes"
    "encoding/json"
    "fmt"
+   "io"
    "net/http"
-   "slices"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,82 @@ func TopJSON(in []byte) ([]byte, bool) {
    return nil, false
 }
 
+func httpGet(c *http.Client, url string) ([]byte, error) {
+   req, err := http.NewRequest(http.MethodGet, url, nil)
+   if err != nil {
+      return nil, err
+   }
+   req.Header.Set("User-Agent", "tp-rank/1.0")
+   resp, err := c.Do(req)
+   if err != nil {
+      return nil, err
+   }
+   defer resp.Body.Close()
+   if resp.StatusCode != http.StatusOK {
+      return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+   }
+   return io.ReadAll(resp.Body)
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: single request -> open-weights candidates
+// ---------------------------------------------------------------------------
+
+func fetchCandidates(c *http.Client, minIntelligence float64) ([]candidate, int, error) {
+   // The intelligence filter is applied server-side: the models page
+   // appends min_intelligence_index to the find request (confirmed by
+   // capture). Zero means no filter.
+   url := catalogURL
+   if minIntelligence > 0 {
+      url = fmt.Sprintf("%s&min_intelligence_index=%g", catalogURL, minIntelligence)
+   }
+   body, err := httpGet(c, url)
+   if err != nil {
+      return nil, 0, err
+   }
+   var resp findResponse
+   if err := json.Unmarshal(body, &resp); err != nil {
+      return nil, 0, fmt.Errorf("decoding catalog: %w", err)
+   }
+
+   total := len(resp.Data.Models)
+   seen := make(map[string]bool)
+   var cands []candidate
+   for _, m := range resp.Data.Models {
+      // Open weights = weights published on Hugging Face.
+      if m.Permaslug == "" || m.HfSlug == "" {
+         continue
+      }
+      // The catalog can contain duplicate entries per permaslug.
+      if seen[m.Permaslug] {
+         continue
+      }
+      seen[m.Permaslug] = true
+
+      cd := candidate{slug: m.Permaslug, name: m.Name}
+      // The page lives at the model slug, not the permaslug.
+      cd.pageSlug = modelPageSlug(m.Permaslug)
+      // Display only — the filter was already applied server-side.
+      if b, ok := resp.Data.Benchmarks[m.Permaslug]; ok && b.AA != nil {
+         cd.intelligence = b.AA.IntelligenceIndex
+      }
+      cands = append(cands, cd)
+   }
+   return cands, total, nil
+}
+
+type benchmarks struct {
+   AA *struct {
+      IntelligenceIndex float64 `json:"intelligence_index"`
+   } `json:"aa"`
+}
+
+type catalogModel struct {
+   Permaslug string `json:"permaslug"`
+   Name      string `json:"name"`
+   HfSlug    string `json:"hf_slug"` // non-empty == open weights
+}
+
 // endpointEntry is one entry of the endpoint-stats arrays (confirmed by
 // capture).
 type endpointEntry struct {
@@ -67,6 +143,17 @@ type endpointEntry struct {
 // block of one endpoint entry.
 type endpointStats struct {
    P50Throughput float64 `json:"p50_throughput"`
+}
+
+// ---------------------------------------------------------------------------
+// Catalog types (from the models/find payload)
+// ---------------------------------------------------------------------------
+
+type findResponse struct {
+   Data struct {
+      Models     []catalogModel        `json:"models"`
+      Benchmarks map[string]benchmarks `json:"benchmarks"`
+   } `json:"data"`
 }
 
 // ---------------------------------------------------------------------------
@@ -145,14 +232,6 @@ func fetchPageState(c *http.Client, pageSlug string) (*pageState, error) {
    return st, nil
 }
 
-// providerGPQA aggregates one provider's GPQA entries: the kept score
-// plus every endpoint id the provider was scored on, for the tps join.
-type providerGPQA struct {
-   GPQA        float64
-   RunCount    int
-   EndpointIDs []string
-}
-
 // rawQuery is one entry of the dehydrated state's queries array. The
 // query key is heterogeneous — ["model-page","endpointStats",{...}]:
 // strings plus a trailing options object — and the payload type differs
@@ -175,92 +254,6 @@ func (q *rawQuery) hasKey(s string) bool {
       }
    }
    return false
-}
-
-// ---------------------------------------------------------------------------
-// Working types
-// ---------------------------------------------------------------------------
-
-// row is one model + one provider: the flat unit of output.
-type row struct {
-   Model    string
-   Name     string
-   Provider string
-   // GPQA is the provider's AutoExacto GPQA Diamond score, 0..1.
-   GPQA float64
-   // P50 is that provider's median p50 throughput, tokens/sec.
-   P50 float64
-}
-
-// ---------------------------------------------------------------------------
-// Rows: one model page -> one row per provider
-// ---------------------------------------------------------------------------
-
-// fetchRows returns one row per provider: provider, GPQA Diamond score,
-// and median p50 throughput, all from a single model page request. A row
-// is emitted only when the provider has both a GPQA score and a tps
-// measurement.
-func fetchRows(c *http.Client, cd *candidate) ([]row, error) {
-   st, err := fetchPageState(c, cd.pageSlug)
-   if err != nil {
-      return nil, err
-   }
-
-   // p50 throughput per endpoint id. The two stats queries carry the
-   // same array, so identical entries overwrite each other.
-   p50ByEndpoint := make(map[string]float64)
-   for _, e := range st.Endpoints {
-      if e.Stats == nil {
-         continue // no traffic in the window
-      }
-      p50ByEndpoint[e.ID] = e.Stats.P50Throughput
-   }
-
-   // GPQA Diamond per provider. A provider can have several scored
-   // endpoints (e.g. different quantizations); the entry with the most
-   // runs is kept as the most reliable, and all of the provider's
-   // endpoint ids are collected for the tps join.
-   gpqaByProvider := make(map[string]providerGPQA)
-   for _, s := range st.Scores {
-      if s.BenchmarkType != "gpqa_diamond" {
-         continue
-      }
-      g, seen := gpqaByProvider[s.ProviderName]
-      if !seen || s.RunCount > g.RunCount {
-         g.GPQA, g.RunCount = s.Score, s.RunCount
-      }
-      if s.EndpointID != "" && !slices.Contains(g.EndpointIDs, s.EndpointID) {
-         g.EndpointIDs = append(g.EndpointIDs, s.EndpointID)
-      }
-      gpqaByProvider[s.ProviderName] = g
-   }
-   if len(gpqaByProvider) == 0 {
-      return nil, fmt.Errorf("no gpqa_diamond scores in page payload")
-   }
-
-   var rows []row
-   for provider, g := range gpqaByProvider {
-      // One p50 throughput value per provider: all of its endpoints'
-      // p50s are collected and reduced to one median below.
-      var p50s []float64
-      for _, id := range g.EndpointIDs {
-         if p50, ok := p50ByEndpoint[id]; ok {
-            p50s = append(p50s, p50)
-         }
-      }
-      if len(p50s) == 0 {
-         continue // no throughput for this provider -> no row
-      }
-      slices.Sort(p50s)
-      rows = append(rows, row{
-         Model:    cd.slug,
-         Name:     cd.name,
-         Provider: provider,
-         GPQA:     g.GPQA,
-         P50:      percentile(p50s, 50),
-      })
-   }
-   return rows, nil
 }
 
 // scoreEntry is one entry of the AutoExacto scores array (confirmed by
