@@ -4,8 +4,10 @@ package main
 
 import (
    "cmp"
+   "errors"
    "flag"
    "fmt"
+   "io"
    "net/http"
    "os"
    "slices"
@@ -13,11 +15,32 @@ import (
    "time"
 )
 
+// errNoGPQA is the one failure fetchRows retries: the page payload
+// sometimes arrives without any gpqa_diamond scores.
+var errNoGPQA = errors.New("no gpqa_diamond scores in page payload")
+
+func httpGet(c *http.Client, url string) ([]byte, error) {
+   req, err := http.NewRequest(http.MethodGet, url, nil)
+   if err != nil {
+      return nil, err
+   }
+   req.Header.Set("User-Agent", "tp-rank/1.0")
+   resp, err := c.Do(req)
+   if err != nil {
+      return nil, err
+   }
+   defer resp.Body.Close()
+   if resp.StatusCode != http.StatusOK {
+      return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+   }
+   return io.ReadAll(resp.Body)
+}
+
 func main() {
    minIntelligence := flag.Float64("i", 0,
       "drop candidates below this AA intelligence index (0 = no filter)")
    minGPQA := flag.Float64("g", 0,
-      "drop providers below this GPQA Diamond score (0..1, 0 = no filter)")
+      "drop providers below this GPQA Diamond score, percent (0-100; 0 = no filter)")
    yes := flag.Bool("y", false,
       "confirm: run the fetch (required — without it usage is printed)")
    flag.Parse()
@@ -86,30 +109,31 @@ func run(minIntelligence, minGPQA float64) error {
    }
 
    // --- 2. Providers: sequential, one request per candidate. A failed
-   // request is reported and skipped — no retries.
-   var rows []row
+   // request aborts the run — no retries. The only exception is a page
+   // payload missing its gpqa_diamond scores, which fetchRows retries once.
+   var rows []*row
    for i, cd := range cands {
       fmt.Fprintf(os.Stderr, "[%d/%d] %s ", i+1, len(cands), cd.slug)
       rs, err := fetchRows(client, &cd)
       if err != nil {
-         fmt.Fprintf(os.Stderr, "error: %v\n", err)
-         continue
+         fmt.Fprintln(os.Stderr) // terminate the in-progress progress line
+         return fmt.Errorf("page %s: %w", cd.slug, err)
       }
       fmt.Fprintf(os.Stderr, "aa: %.1f\n", cd.intelligence)
       rows = append(rows, rs...)
    }
 
-   // --- 3. Apply the -g floor: drop providers below minGPQA.
-   rows = slices.DeleteFunc(rows, func(r row) bool {
-      return r.GPQA < minGPQA
+   // --- 3. Apply the -g floor: drop providers below minGPQA percent.
+   rows = slices.DeleteFunc(rows, func(r *row) bool {
+      return r.GPQA*100 < minGPQA
    })
 
-   // --- 4. Sort by GPQA Diamond score, descending.
-   slices.SortFunc(rows, func(a, b row) int {
-      return cmp.Compare(b.GPQA, a.GPQA)
+   // --- 4. Sort by throughput, descending.
+   slices.SortFunc(rows, func(a, b *row) int {
+      return cmp.Compare(b.Throughput, a.Throughput)
    })
 
-   fmt.Printf("sorted by: gpqa diamond, descending\n\n")
+   fmt.Printf("sorted by: throughput, descending\n\n")
 
    for _, r := range rows {
       fmt.Printf("model: %s\n", r.Model)
@@ -124,7 +148,6 @@ func run(minIntelligence, minGPQA float64) error {
 
 type candidate struct {
    slug         string
-   name         string
    intelligence float64
    // pageSlug is the model page path for this candidate (permaslug
    // minus the version date).
@@ -135,11 +158,13 @@ type candidate struct {
 // Rows: one model page -> one row per provider
 // ---------------------------------------------------------------------------
 
-// providerGPQA aggregates one provider's GPQA entries: the kept score
-// plus every endpoint id the provider was scored on, for the tps join.
+// providerGPQA aggregates one provider's GPQA entries: every
+// gpqa_diamond score plus every endpoint id the provider was scored on.
+// Both row dimensions — the GPQA score and the p50 throughput — are
+// reduced by the same rule: the median over the provider's scored
+// endpoints.
 type providerGPQA struct {
-   GPQA        float64
-   RunCount    int
+   Scores      []float64
    EndpointIDs []string
 }
 
@@ -150,24 +175,53 @@ type providerGPQA struct {
 // row is one model + one provider: the flat unit of output.
 type row struct {
    Model    string
-   Name     string
    Provider string
-   // GPQA is the provider's AutoExacto GPQA Diamond score, 0..1.
+   // GPQA is the median of the provider's AutoExacto GPQA Diamond
+   // scores across its scored endpoints, 0..1.
    GPQA float64
-   // Throughput is that provider's median p50 throughput, tokens/sec.
+   // Throughput is the median of the provider's endpoints' p50
+   // throughput, tokens/sec.
    Throughput float64
 }
 
 // fetchRows returns one row per provider: provider, GPQA Diamond score,
 // and median p50 throughput, all from a single model page request. A row
 // is emitted only when the provider has both a GPQA score and a tps
-// measurement.
-func fetchRows(c *http.Client, cd *candidate) ([]row, error) {
-   st, err := fetchPageState(c, cd.pageSlug)
-   if err != nil {
-      return nil, err
+// measurement. Both the score and the throughput are the median over the
+// provider's scored endpoints — one reduction rule for both dimensions.
+//
+// The AutoExacto scores are not always present in the response, so a page
+// that comes back without any gpqa_diamond scores is fetched one extra
+// time; if the second page is missing them too, errNoGPQA is returned.
+// Every other failure (transport, HTTP status, decoding) aborts
+// immediately — no retries.
+func fetchRows(c *http.Client, cd *candidate) ([]*row, error) {
+   const attempts = 2
+   var lastErr error
+   for i := 0; i < attempts; i++ {
+      st, err := fetchPageState(c, cd.pageSlug)
+      if err != nil {
+         return nil, err
+      }
+      rows, err := rowsFromPageState(cd, st)
+      if err == nil {
+         return rows, nil
+      }
+      if !errors.Is(err, errNoGPQA) {
+         return nil, err
+      }
+      lastErr = err
+      if i+1 < attempts {
+         fmt.Fprintf(os.Stderr, "[%v, retrying] ", err)
+      }
    }
+   return nil, fmt.Errorf("%w (after %d attempts)", lastErr, attempts)
+}
 
+// rowsFromPageState reduces one model page's query state to rows, one per
+// provider. It returns errNoGPQA when the page carries no gpqa_diamond
+// scores at all.
+func rowsFromPageState(cd *candidate, st *pageState) ([]*row, error) {
    // p50 throughput per endpoint id. The two stats queries carry the
    // same array, so identical entries overwrite each other.
    throughputByEndpoint := make(map[string]float64)
@@ -179,31 +233,28 @@ func fetchRows(c *http.Client, cd *candidate) ([]row, error) {
    }
 
    // GPQA Diamond per provider. A provider can have several scored
-   // endpoints (e.g. different quantizations); the entry with the most
-   // runs is kept as the most reliable, and all of the provider's
-   // endpoint ids are collected for the tps join.
+   // endpoints (e.g. different quantizations); every score is kept, and
+   // all of the provider's endpoint ids are collected for the tps join.
    gpqaByProvider := make(map[string]providerGPQA)
    for _, s := range st.Scores {
       if s.BenchmarkType != "gpqa_diamond" {
          continue
       }
-      g, seen := gpqaByProvider[s.ProviderName]
-      if !seen || s.RunCount > g.RunCount {
-         g.GPQA, g.RunCount = s.Score, s.RunCount
-      }
+      g := gpqaByProvider[s.ProviderName]
+      g.Scores = append(g.Scores, s.Score)
       if s.EndpointID != "" && !slices.Contains(g.EndpointIDs, s.EndpointID) {
          g.EndpointIDs = append(g.EndpointIDs, s.EndpointID)
       }
       gpqaByProvider[s.ProviderName] = g
    }
    if len(gpqaByProvider) == 0 {
-      return nil, fmt.Errorf("no gpqa_diamond scores in page payload")
+      return nil, errNoGPQA
    }
 
-   var rows []row
+   var rows []*row
    for provider, g := range gpqaByProvider {
-      // One p50 throughput value per provider: all of its endpoints'
-      // p50 throughputs are collected and reduced to one median below.
+      // Same reduction for both dimensions: the median over the
+      // provider's scored endpoints.
       var throughputs []float64
       for _, id := range g.EndpointIDs {
          if tp, ok := throughputByEndpoint[id]; ok {
@@ -213,12 +264,12 @@ func fetchRows(c *http.Client, cd *candidate) ([]row, error) {
       if len(throughputs) == 0 {
          continue // no throughput for this provider -> no row
       }
+      slices.Sort(g.Scores)
       slices.Sort(throughputs)
-      rows = append(rows, row{
+      rows = append(rows, &row{
          Model:      cd.slug,
-         Name:       cd.name,
          Provider:   provider,
-         GPQA:       g.GPQA,
+         GPQA:       percentile(g.Scores, 50),
          Throughput: percentile(throughputs, 50),
       })
    }

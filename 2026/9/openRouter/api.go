@@ -6,7 +6,6 @@ import (
    "bytes"
    "encoding/json"
    "fmt"
-   "io"
    "net/http"
 )
 
@@ -30,47 +29,43 @@ const pageURLTemplate = "https://openrouter.ai/%s"
 // Page payload: extraction
 // ---------------------------------------------------------------------------
 
-// Marker for the embedded query state, in its escaped form. The payload
-// is a JSON string inside a script tag, so quotes are escaped but braces
-// are not — brace counting works, string contents carry no braces.
-var prefix = []byte(`{\"state\"`)
+// The payload is a JSON string inside a script tag, so quotes are
+// escaped but braces are not — the queries array is located by brace
+// counting over its object elements. Needle for the dehydrated state's
+// queries array, in its escaped form. The state object carries a
+// mutations array before queries (confirmed by capture:
+// {\"state\":{\"mutations\":[],\"queries\":[…), so the needle anchors on
+// the escaped queries key itself — the only queries array on the page
+// (the query elements use queryKey and queryHash, never a queries key).
+var prefix = []byte(`\"queries\":[`)
 
-// TopJSON returns the bracketed value that starts at the first occurrence
-// of prefix.
+// TopJSON returns the bracketed queries array that follows the first
+// occurrence of prefix: the first element's opening brace starts a brace
+// count, and the first closing bracket in a gap between two
+// brace-verified objects (where only commas and whitespace are
+// grammatical) closes the array.
 func TopJSON(in []byte) ([]byte, bool) {
    i := bytes.Index(in, prefix)
    if i < 0 {
       return nil, false
    }
+   lo := i + len(prefix) - 1 // the array's opening bracket
    depth := 0
-   for j := i; j < len(in); j++ {
+   for j := lo + 1; j < len(in); j++ {
       switch in[j] {
       case '{':
          depth++
       case '}':
          if depth--; depth == 0 {
-            return in[i : j+1], true
+            continue
+         }
+      case ']':
+         if depth == 0 {
+            return in[lo : j+1], true
          }
       }
    }
    return nil, false
-}
-
-func httpGet(c *http.Client, url string) ([]byte, error) {
-   req, err := http.NewRequest(http.MethodGet, url, nil)
-   if err != nil {
-      return nil, err
-   }
-   req.Header.Set("User-Agent", "tp-rank/1.0")
-   resp, err := c.Do(req)
-   if err != nil {
-      return nil, err
-   }
-   defer resp.Body.Close()
-   if resp.StatusCode != http.StatusOK {
-      return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-   }
-   return io.ReadAll(resp.Body)
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +103,7 @@ func fetchCandidates(c *http.Client, minIntelligence float64) ([]candidate, int,
       }
       seen[m.Permaslug] = true
 
-      cd := candidate{slug: m.Permaslug, name: m.Name}
+      cd := candidate{slug: m.Permaslug}
       // The page lives at the model slug, not the permaslug.
       cd.pageSlug = modelPageSlug(m.Permaslug)
       // Display only — the filter was already applied server-side.
@@ -128,7 +123,6 @@ type benchmarks struct {
 
 type catalogModel struct {
    Permaslug string `json:"permaslug"`
-   Name      string `json:"name"`
    HfSlug    string `json:"hf_slug"` // non-empty == open weights
 }
 
@@ -160,7 +154,7 @@ type findResponse struct {
 // Page payload: types
 // ---------------------------------------------------------------------------
 
-// pageState is the typed subset of the dehydrated state of one model
+// pageState is the typed subset of the dehydrated queries of one model
 // page.
 type pageState struct {
    // Endpoints holds the entries of the endpointStats and
@@ -195,20 +189,16 @@ func fetchPageState(c *http.Client, pageSlug string) (*pageState, error) {
       return nil, fmt.Errorf("unescaping page payload: %w", err)
    }
 
-   // First pass: decode the shape only. Each query keeps its data raw —
-   // the payload type is not known until the key is read.
-   var dehydrated struct {
-      State struct {
-         Queries []rawQuery `json:"queries"`
-      } `json:"state"`
-   }
-   if err := json.Unmarshal([]byte(raw), &dehydrated); err != nil {
+   // Each query keeps its data raw — the payload type is not known until
+   // the key is read.
+   var queries []rawQuery
+   if err := json.Unmarshal([]byte(raw), &queries); err != nil {
       return nil, fmt.Errorf("decoding page payload: %w", err)
    }
 
-   // Second pass: per query key, one proper unmarshal of its data.
+   // Per query key, one proper unmarshal of its data.
    st := &pageState{}
-   for _, q := range dehydrated.State.Queries {
+   for _, q := range queries {
       if len(q.State.Data) == 0 {
          continue // no data (e.g. a pending query)
       }
@@ -232,10 +222,10 @@ func fetchPageState(c *http.Client, pageSlug string) (*pageState, error) {
    return st, nil
 }
 
-// rawQuery is one entry of the dehydrated state's queries array. The
-// query key is heterogeneous — ["model-page","endpointStats",{...}]:
-// strings plus a trailing options object — and the payload type differs
-// per key, so both stay raw until the key identifies the type.
+// rawQuery is one entry of the dehydrated queries array. The query key is
+// heterogeneous — ["model-page","endpointStats",{...}]: strings plus a
+// trailing options object — and the payload type differs per key, so both
+// stay raw until the key identifies the type.
 type rawQuery struct {
    QueryKey []json.RawMessage `json:"queryKey"`
    State    struct {
