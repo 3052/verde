@@ -17,7 +17,7 @@ func getConfigPath() (string, error) {
    if err != nil {
       return "", err
    }
-   return filepath.Join(configDir, "journal/credential.json"), nil
+   return filepath.Join(configDir, "verde/credential.json"), nil
 }
 
 // loadConfig reads the config file and returns the saved DataFile path
