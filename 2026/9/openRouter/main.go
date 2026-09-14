@@ -4,7 +4,6 @@ package main
 
 import (
    "cmp"
-   "errors"
    "flag"
    "fmt"
    "io"
@@ -14,10 +13,6 @@ import (
    "strings"
    "time"
 )
-
-// errNoGPQA is the one failure fetchRows retries: the page payload
-// sometimes arrives without any gpqa_diamond scores.
-var errNoGPQA = errors.New("no gpqa_diamond scores in page payload")
 
 func httpGet(c *http.Client, url string) ([]byte, error) {
    req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -109,8 +104,7 @@ func run(minIntelligence, minGPQA float64) error {
    }
 
    // --- 2. Providers: sequential, one request per candidate. A failed
-   // request aborts the run — no retries. The only exception is a page
-   // payload missing its gpqa_diamond scores, which fetchRows retries once.
+   // request aborts the run — no retries.
    var rows []*row
    for i, cd := range cands {
       fmt.Fprintf(os.Stderr, "[%d/%d] %s ", i+1, len(cands), cd.slug)
@@ -190,37 +184,20 @@ type row struct {
 // measurement. Both the score and the throughput are the median over the
 // provider's scored endpoints — one reduction rule for both dimensions.
 //
-// The AutoExacto scores are not always present in the response, so a page
-// that comes back without any gpqa_diamond scores is fetched one extra
-// time; if the second page is missing them too, errNoGPQA is returned.
-// Every other failure (transport, HTTP status, decoding) aborts
-// immediately — no retries.
+// A page that arrives without any gpqa_diamond scores is an ordinary
+// error: the page is fetched once, and every failure (missing scores,
+// transport, HTTP status, decoding) aborts the run.
 func fetchRows(c *http.Client, cd *candidate) ([]*row, error) {
-   const attempts = 2
-   var lastErr error
-   for i := 0; i < attempts; i++ {
-      st, err := fetchPageState(c, cd.pageSlug)
-      if err != nil {
-         return nil, err
-      }
-      rows, err := rowsFromPageState(cd, st)
-      if err == nil {
-         return rows, nil
-      }
-      if !errors.Is(err, errNoGPQA) {
-         return nil, err
-      }
-      lastErr = err
-      if i+1 < attempts {
-         fmt.Fprintf(os.Stderr, "[%v, retrying] ", err)
-      }
+   st, err := fetchPageState(c, cd.pageSlug)
+   if err != nil {
+      return nil, err
    }
-   return nil, fmt.Errorf("%w (after %d attempts)", lastErr, attempts)
+   return rowsFromPageState(cd, st)
 }
 
 // rowsFromPageState reduces one model page's query state to rows, one per
-// provider. It returns errNoGPQA when the page carries no gpqa_diamond
-// scores at all.
+// provider. It errors when the page carries no gpqa_diamond scores at
+// all.
 func rowsFromPageState(cd *candidate, st *pageState) ([]*row, error) {
    // p50 throughput per endpoint id. The two stats queries carry the
    // same array, so identical entries overwrite each other.
@@ -248,7 +225,7 @@ func rowsFromPageState(cd *candidate, st *pageState) ([]*row, error) {
       gpqaByProvider[s.ProviderName] = g
    }
    if len(gpqaByProvider) == 0 {
-      return nil, errNoGPQA
+      return nil, fmt.Errorf("no gpqa_diamond scores in page payload")
    }
 
    var rows []*row
