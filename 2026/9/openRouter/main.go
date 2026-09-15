@@ -31,8 +31,6 @@ func httpGet(c *http.Client, url string) ([]byte, error) {
 }
 
 func main() {
-   minIntelligence := flag.Float64("i", 0,
-      "drop candidates below this AA intelligence index (0 = no filter)")
    minGPQA := flag.Float64("g", 0,
       "drop providers below this GPQA Diamond score, percent (0-100; 0 = no filter)")
    yes := flag.Bool("y", false,
@@ -45,7 +43,7 @@ func main() {
       return
    }
 
-   if err := run(*minIntelligence, *minGPQA); err != nil {
+   if err := run(*minGPQA); err != nil {
       fmt.Fprintf(os.Stderr, "%v\n", err)
       os.Exit(1)
    }
@@ -71,38 +69,65 @@ func percentile(sorted []float64, p float64) float64 {
    return sorted[lo] + frac*(sorted[lo+1]-sorted[lo])
 }
 
-func run(minIntelligence, minGPQA float64) error {
+func run(minGPQA float64) error {
    client := &http.Client{Timeout: 30 * time.Second}
 
-   // --- 1. Catalog: one request, filter to open weights.
-   cands, total, err := fetchCandidates(client, minIntelligence)
+   // --- 1. Catalog: one request, three filters — one server-side (the
+   // context floor), two client-side (open weights, dedupe). filterReport
+   // names each filter and its effect, so no count is mistaken for the
+   // size of the whole catalog.
+   cands, stats, err := fetchCandidates(client)
    if err != nil {
       return fmt.Errorf("catalog: %w", err)
    }
-   fmt.Fprintf(os.Stderr, "%d models in catalog, %d open-weights candidates\n",
-      total, len(cands))
+   fmt.Fprint(os.Stderr, filterReport(stats))
    if len(cands) == 0 {
-      return fmt.Errorf("no candidates matched")
+      return fmt.Errorf("no candidates after filtering: %d models returned for context >= %d, %d dropped as closed weights, %d as duplicate slugs",
+         stats.AfterContext, minContext, stats.DroppedClosed, stats.DroppedDuplicate)
    }
 
    // --- 2. Providers: sequential, two JSON stats requests per candidate
-   // (scores + throughput). A failed request aborts the run — no retries.
+   // (scores + throughput). A candidate with no data recorded is logged
+   // and skipped; any other failure aborts the run — no retries.
    var rows []*row
+   skipped := 0
    for i, cd := range cands {
-      fmt.Fprintf(os.Stderr, "[%d/%d] %s ", i+1, len(cands), cd.slug)
+      fmt.Fprintf(os.Stderr, "[%d/%d] %s ctx: %d ",
+         i+1, len(cands), cd.slug, cd.contextLength)
       rs, err := fetchRows(client, &cd)
       if err != nil {
+         if skippable(err) {
+            fmt.Fprintf(os.Stderr, "skip: %v\n", err)
+            skipped++
+            continue
+         }
          fmt.Fprintln(os.Stderr) // terminate the in-progress progress line
          return fmt.Errorf("stats %s: %w", cd.slug, err)
       }
       fmt.Fprintf(os.Stderr, "aa: %.1f\n", cd.intelligence)
       rows = append(rows, rs...)
    }
+   fmt.Fprintf(os.Stderr, "skip filter (no data recorded, per candidate):  %6d of %d candidates\n",
+      skipped, len(cands))
+   fmt.Fprintf(os.Stderr, "rows:                                          %6d\n", len(rows))
 
    // --- 3. Apply the -g floor: drop providers below minGPQA percent.
-   rows = slices.DeleteFunc(rows, func(r *row) bool {
-      return r.GPQA*100 < minGPQA
-   })
+   if minGPQA > 0 {
+      before := len(rows)
+      rows = slices.DeleteFunc(rows, func(r *row) bool {
+         return r.GPQA*100 < minGPQA
+      })
+      fmt.Fprintf(os.Stderr, "  dropped by -g (GPQA below %.1f%%):            %6d\n",
+         minGPQA, before-len(rows))
+   }
+
+   // A run that ranks nothing is a misconfiguration, not a result: say so
+   // rather than printing a bare header. (Delete this block if an empty
+   // list should exit 0.)
+   if len(rows) == 0 {
+      return fmt.Errorf("no rows to rank: %d candidates, %d skipped for absent data, %d rows left after -g",
+         len(cands), skipped, len(rows))
+   }
 
    // --- 4. Sort by throughput, descending.
    slices.SortFunc(rows, func(a, b *row) int {
@@ -125,6 +150,9 @@ func run(minIntelligence, minGPQA float64) error {
 type candidate struct {
    slug         string
    intelligence float64
+   // contextLength is the model card's window, echoed in the progress line
+   // so the floor's effect is visible per candidate.
+   contextLength int
 }
 
 // ---------------------------------------------------------------------------
@@ -133,9 +161,8 @@ type candidate struct {
 
 // providerGPQA aggregates one provider's GPQA entries: every
 // gpqa_diamond score plus every endpoint id the provider was scored on.
-// Both row dimensions — the GPQA score and the p50 throughput — are
-// reduced by the same rule: the median over the provider's scored
-// endpoints.
+// Both row dimensions — the GPQA score and the throughput — are reduced by
+// the same rule: the median over the provider's scored endpoints.
 type providerGPQA struct {
    Scores      []float64
    EndpointIDs []string
@@ -161,11 +188,13 @@ type row struct {
 // and median throughput, from two per-permaslug stats requests — no model
 // page, no HTML. A row is emitted only when the provider has both a GPQA
 // score and a throughput measurement. Both the score and the throughput
-// are the median over the provider's scored endpoints — one reduction
-// rule for both dimensions.
+// are the median over the provider's scored endpoints — one reduction rule
+// for both dimensions.
 //
-// Every failure (transport, HTTP status, decoding, a payload without
-// scores) aborts the run.
+// A candidate whose stats are simply absent comes back with a skippable
+// sentinel; every other failure (transport, HTTP status, decoding) is an
+// ordinary error. The throughput request is not made when the scores are
+// already absent.
 func fetchRows(c *http.Client, cd *candidate) ([]*row, error) {
    scores, err := fetchScores(c, cd.slug)
    if err != nil {
@@ -181,8 +210,9 @@ func fetchRows(c *http.Client, cd *candidate) ([]*row, error) {
 }
 
 // rowsFromScores reduces one permaslug's benchmark scores and its
-// per-endpoint throughput to rows, one per provider. It errors when the
-// scores carry no gpqa_diamond entries at all.
+// per-endpoint throughput to rows, one per provider. Scores that carry no
+// gpqa_diamond entries at all (tau data only, say) come back with a
+// skippable sentinel.
 func rowsFromScores(cd *candidate, scores []scoreEntry, throughputByEndpoint map[string]float64) ([]*row, error) {
    // GPQA Diamond per provider. A provider can have several scored
    // endpoints (e.g. different quantizations); every score is kept, and
@@ -200,7 +230,7 @@ func rowsFromScores(cd *candidate, scores []scoreEntry, throughputByEndpoint map
       gpqaByProvider[s.ProviderName] = g
    }
    if len(gpqaByProvider) == 0 {
-      return nil, fmt.Errorf("no gpqa_diamond scores in response payload")
+      return nil, errNoGPQA
    }
 
    var rows []*row
