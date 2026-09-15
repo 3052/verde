@@ -10,7 +10,6 @@ import (
    "net/http"
    "os"
    "slices"
-   "strings"
    "time"
 )
 
@@ -52,23 +51,6 @@ func main() {
    }
 }
 
-// modelPageSlug derives the model page path from a permaslug by
-// stripping the trailing version date: "z-ai/glm-5.3-20260816" ->
-// "z-ai/glm-5.3". A permaslug without a trailing 8-digit date is
-// returned unchanged.
-func modelPageSlug(permaslug string) string {
-   before, date, found := strings.CutLast(permaslug, "-")
-   if !found || len(date) != 8 {
-      return permaslug
-   }
-   for _, r := range date {
-      if r < '0' || r > '9' {
-         return permaslug
-      }
-   }
-   return before
-}
-
 // percentile returns the p-th percentile of ascending-sorted data with
 // linear interpolation (numpy's default method): fractional index
 // i = (p/100) * (n-1), interpolate between neighbors.
@@ -103,15 +85,15 @@ func run(minIntelligence, minGPQA float64) error {
       return fmt.Errorf("no candidates matched")
    }
 
-   // --- 2. Providers: sequential, one request per candidate. A failed
-   // request aborts the run — no retries.
+   // --- 2. Providers: sequential, two JSON stats requests per candidate
+   // (scores + throughput). A failed request aborts the run — no retries.
    var rows []*row
    for i, cd := range cands {
       fmt.Fprintf(os.Stderr, "[%d/%d] %s ", i+1, len(cands), cd.slug)
       rs, err := fetchRows(client, &cd)
       if err != nil {
          fmt.Fprintln(os.Stderr) // terminate the in-progress progress line
-         return fmt.Errorf("page %s: %w", cd.slug, err)
+         return fmt.Errorf("stats %s: %w", cd.slug, err)
       }
       fmt.Fprintf(os.Stderr, "aa: %.1f\n", cd.intelligence)
       rows = append(rows, rs...)
@@ -143,13 +125,10 @@ func run(minIntelligence, minGPQA float64) error {
 type candidate struct {
    slug         string
    intelligence float64
-   // pageSlug is the model page path for this candidate (permaslug
-   // minus the version date).
-   pageSlug string
 }
 
 // ---------------------------------------------------------------------------
-// Rows: one model page -> one row per provider
+// Rows: one permaslug -> one row per provider
 // ---------------------------------------------------------------------------
 
 // providerGPQA aggregates one provider's GPQA entries: every
@@ -173,47 +152,43 @@ type row struct {
    // GPQA is the median of the provider's AutoExacto GPQA Diamond
    // scores across its scored endpoints, 0..1.
    GPQA float64
-   // Throughput is the median of the provider's endpoints' p50
-   // throughput, tokens/sec.
+   // Throughput is the median of the provider's endpoints' throughput,
+   // tokens/sec.
    Throughput float64
 }
 
 // fetchRows returns one row per provider: provider, GPQA Diamond score,
-// and median p50 throughput, all from a single model page request. A row
-// is emitted only when the provider has both a GPQA score and a tps
-// measurement. Both the score and the throughput are the median over the
-// provider's scored endpoints — one reduction rule for both dimensions.
+// and median throughput, from two per-permaslug stats requests — no model
+// page, no HTML. A row is emitted only when the provider has both a GPQA
+// score and a throughput measurement. Both the score and the throughput
+// are the median over the provider's scored endpoints — one reduction
+// rule for both dimensions.
 //
-// A page that arrives without any gpqa_diamond scores is an ordinary
-// error: the page is fetched once, and every failure (missing scores,
-// transport, HTTP status, decoding) aborts the run.
+// Every failure (transport, HTTP status, decoding, a payload without
+// scores) aborts the run.
 func fetchRows(c *http.Client, cd *candidate) ([]*row, error) {
-   st, err := fetchPageState(c, cd.pageSlug)
+   scores, err := fetchScores(c, cd.slug)
    if err != nil {
       return nil, err
    }
-   return rowsFromPageState(cd, st)
+   // Endpoint id -> tokens/sec, same uuid namespace as the scores'
+   // endpoint_id, so the join below is exact.
+   throughputByEndpoint, err := fetchThroughput(c, cd.slug)
+   if err != nil {
+      return nil, err
+   }
+   return rowsFromScores(cd, scores, throughputByEndpoint)
 }
 
-// rowsFromPageState reduces one model page's query state to rows, one per
-// provider. It errors when the page carries no gpqa_diamond scores at
-// all.
-func rowsFromPageState(cd *candidate, st *pageState) ([]*row, error) {
-   // p50 throughput per endpoint id. The two stats queries carry the
-   // same array, so identical entries overwrite each other.
-   throughputByEndpoint := make(map[string]float64)
-   for _, e := range st.Endpoints {
-      if e.Stats == nil {
-         continue // no traffic in the window
-      }
-      throughputByEndpoint[e.ID] = e.Stats.P50Throughput
-   }
-
+// rowsFromScores reduces one permaslug's benchmark scores and its
+// per-endpoint throughput to rows, one per provider. It errors when the
+// scores carry no gpqa_diamond entries at all.
+func rowsFromScores(cd *candidate, scores []scoreEntry, throughputByEndpoint map[string]float64) ([]*row, error) {
    // GPQA Diamond per provider. A provider can have several scored
    // endpoints (e.g. different quantizations); every score is kept, and
    // all of the provider's endpoint ids are collected for the tps join.
    gpqaByProvider := make(map[string]providerGPQA)
-   for _, s := range st.Scores {
+   for _, s := range scores {
       if s.BenchmarkType != "gpqa_diamond" {
          continue
       }
@@ -225,7 +200,7 @@ func rowsFromPageState(cd *candidate, st *pageState) ([]*row, error) {
       gpqaByProvider[s.ProviderName] = g
    }
    if len(gpqaByProvider) == 0 {
-      return nil, fmt.Errorf("no gpqa_diamond scores in page payload")
+      return nil, fmt.Errorf("no gpqa_diamond scores in response payload")
    }
 
    var rows []*row
