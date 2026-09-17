@@ -10,6 +10,9 @@ $androidPath = @()
 # Section 2 — Environment variables, array items & core behavior (can expire — dated)
 # ────────────────────────────────────────────────────────────────────
 
+# 2026-09-16
+$basePath += 'C:\gdu'
+
 # 2026-09-07
 $basePath += 'C:\less'
 $basePath += 'C:\neocities-deploy'
@@ -45,7 +48,6 @@ $basePath += 'C:\MinGit\mingw64\bin'
 $basePath += 'C:\Users\Steven\go\bin'
 $basePath += 'C:\curl\bin'
 $basePath += 'C:\fd'
-$basePath += 'C:\gdu_windows_amd64'
 $basePath += 'C:\go\bin'
 $basePath += 'C:\mitmproxy'
 $basePath += 'C:\rclone'
