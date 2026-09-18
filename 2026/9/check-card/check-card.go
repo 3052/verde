@@ -20,6 +20,7 @@ var targets = []string{
    "IN-N-OUT",
    "JASON'S DELI",
    "LA MADELEINE",
+   "MCDONALD'S",
    "ROMANO'S PIZ",
    "SCHLOTZSKYS",
    "SHAKE SHACK",
