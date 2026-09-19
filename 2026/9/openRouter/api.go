@@ -159,18 +159,18 @@ func fetchThroughput(c *http.Client, permaslug string) (map[string]float64, erro
 // printed from minContext, the same constant the request URL is built
 // from, so the logged cutoff cannot drift from the sent one.
 func filterReport(st catalogStats) string {
-   var b strings.Builder
-   fmt.Fprintf(&b, "catalog filters, in order:\n")
-   fmt.Fprintf(&b, "  1. context >= %d tokens   server-side, models/find `context` (model card)\n", minContext)
-   fmt.Fprintf(&b, "  2. open weights           client-side, hf_slug non-empty\n")
-   fmt.Fprintf(&b, "  3. distinct permaslug     client-side, first occurrence kept\n")
-   fmt.Fprintf(&b, "\n")
-   fmt.Fprintf(&b, "  %-33s %6d\n", "after filter 1 (context):", st.AfterContext)
-   fmt.Fprintf(&b, "  %-33s %6d\n", "dropped by filter 2 (no weights):", st.DroppedClosed)
-   fmt.Fprintf(&b, "  %-33s %6d\n", "dropped by filter 3 (duplicates):", st.DroppedDuplicate)
-   fmt.Fprintf(&b, "  %-33s %6d\n", "candidates:",
+   data := &strings.Builder{}
+   fmt.Fprintf(data, "catalog filters, in order:\n")
+   fmt.Fprintf(data, "  1. context >= %d tokens   server-side, models/find `context` (model card)\n", minContext)
+   fmt.Fprintf(data, "  2. open weights           client-side, hf_slug non-empty\n")
+   fmt.Fprintf(data, "  3. distinct permaslug     client-side, first occurrence kept\n")
+   fmt.Fprintf(data, "\n")
+   fmt.Fprintf(data, "  %-33s %6d\n", "after filter 1 (context):", st.AfterContext)
+   fmt.Fprintf(data, "  %-33s %6d\n", "dropped by filter 2 (no weights):", st.DroppedClosed)
+   fmt.Fprintf(data, "  %-33s %6d\n", "dropped by filter 3 (duplicates):", st.DroppedDuplicate)
+   fmt.Fprintf(data, "  %-33s %6d\n", "candidates:",
       st.AfterContext-st.DroppedClosed-st.DroppedDuplicate)
-   return b.String()
+   return data.String()
 }
 
 // skippable reports whether err means "no data for this candidate" — the
