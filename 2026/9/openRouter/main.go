@@ -4,7 +4,6 @@ package main
 
 import (
    "cmp"
-   "flag"
    "fmt"
    "io"
    "net/http"
@@ -12,6 +11,13 @@ import (
    "slices"
    "time"
 )
+
+// topN is how many provider rows the output carries: every row is ordered
+// by GPQA Diamond descending, the first topN are kept, and those are
+// re-sorted by throughput before printing. Hardcoded for now, like
+// minContext; it is printed in the output header so the cut is never
+// implicit.
+const topN = 20
 
 func httpGet(c *http.Client, url string) ([]byte, error) {
    req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -31,19 +37,7 @@ func httpGet(c *http.Client, url string) ([]byte, error) {
 }
 
 func main() {
-   minGPQA := flag.Float64("g", 0,
-      "drop providers below this GPQA Diamond score, percent (0-100; 0 = no filter)")
-   yes := flag.Bool("y", false,
-      "confirm: run the fetch (required — without it usage is printed)")
-   flag.Parse()
-
-   // -y not used -> flag.Usage as is, and return.
-   if !*yes {
-      flag.Usage()
-      return
-   }
-
-   if err := run(*minGPQA); err != nil {
+   if err := run(); err != nil {
       fmt.Fprintf(os.Stderr, "%v\n", err)
       os.Exit(1)
    }
@@ -69,7 +63,7 @@ func percentile(sorted []float64, p float64) float64 {
    return sorted[lo] + frac*(sorted[lo+1]-sorted[lo])
 }
 
-func run(minGPQA float64) error {
+func run() error {
    client := &http.Client{Timeout: 30 * time.Second}
 
    // --- 1. Catalog: one request, three filters — one server-side (the
@@ -119,42 +113,35 @@ func run(minGPQA float64) error {
       rows = append(rows, rs...)
    }
 
-   // --- 3. Apply the -g floor: drop providers below minGPQA percent.
+   // --- 3. Rank by score, then cut: order every provider row by GPQA
+   // Diamond descending and keep the first topN.
    totalRows := len(rows)
-   if minGPQA > 0 {
-      rows = slices.DeleteFunc(rows, func(r *row) bool {
-         return r.GPQA*100 < minGPQA
-      })
+   slices.SortFunc(rows, func(a, b *row) int {
+      return cmp.Compare(b.GPQA, a.GPQA)
+   })
+   if len(rows) > topN {
+      rows = rows[:topN]
    }
-
-   // The whole-run tally, printed after every filter has run so the counts
-   // cascade in the same style as the catalog report above. Units are named
-   // for the same reason there: "provider rows" is one row per
-   // (model, provider) pair, the unit the ranking below is made of.
-   fmt.Fprintf(os.Stderr, "\nrun summary:\n")
-   fmt.Fprintf(os.Stderr, "  %-28s %6d\n", "candidates:", len(cands))
-   fmt.Fprintf(os.Stderr, "  %-28s %6d\n", "skipped (no data recorded):", skipped)
-   fmt.Fprintf(os.Stderr, "  %-28s %6d\n", "provider rows:", totalRows)
-   if minGPQA > 0 {
-      fmt.Fprintf(os.Stderr, "  %-28s %6d   GPQA Diamond below %.1f%%\n",
-         "dropped by -g:", totalRows-len(rows), minGPQA)
-   }
-   fmt.Fprintf(os.Stderr, "  %-28s %6d\n", "provider rows in output:", len(rows))
 
    // A run that ranks nothing is a misconfiguration, not a result: say so
    // rather than printing a bare header. (Delete this block if an empty
    // list should exit 0.)
    if len(rows) == 0 {
-      return fmt.Errorf("no provider rows to rank: %d candidates, %d skipped for absent data, %d rows before -g",
+      return fmt.Errorf("no provider rows to rank: %d candidates, %d skipped for absent data, %d rows",
          len(cands), skipped, totalRows)
    }
 
-   // --- 4. Sort by throughput, descending.
+   // The cut floor: the lowest GPQA Diamond score that made the top topN.
+   // rows is still score-ordered here, so the last row carries it.
+   fmt.Fprintf(os.Stderr, "\nlowest gpqa diamond in top %d: %.1f%%\n", topN, rows[len(rows)-1].GPQA*100)
+
+   // --- 4. Order the kept rows by throughput, descending: the selection
+   // above was by score; the printed order is by speed.
    slices.SortFunc(rows, func(a, b *row) int {
       return cmp.Compare(b.Throughput, a.Throughput)
    })
 
-   fmt.Printf("sorted by: throughput, descending\n\n")
+   fmt.Printf("top %d by gpqa diamond score, sorted by: throughput, descending\n\n", topN)
 
    for _, r := range rows {
       fmt.Printf("model: %s\n", r.Model)
