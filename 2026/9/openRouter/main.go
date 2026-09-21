@@ -6,18 +6,20 @@ import (
    "cmp"
    "fmt"
    "io"
+   "math"
    "net/http"
    "os"
    "slices"
    "time"
 )
 
-// topN is how many provider rows the output carries: every row is ordered
-// by GPQA Diamond descending, the first topN are kept, and those are
-// re-sorted by throughput before printing. Hardcoded for now, like
-// minContext; it is printed in the output header so the cut is never
-// implicit.
-const topN = 20
+// topPct is how much of the ranked field the output carries, as a
+// percentage of all provider rows: every row is ordered by GPQA Diamond
+// descending, the first topPct% are kept, and those are re-sorted by
+// throughput before printing. Hardcoded for now, like minContext; the
+// percentage is printed in the output header and the resolved row count
+// in the run log, so the cut is never implicit.
+const topPct = 9.0
 
 func httpGet(c *http.Client, url string) ([]byte, error) {
    req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -34,6 +36,18 @@ func httpGet(c *http.Client, url string) ([]byte, error) {
       return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
    }
    return io.ReadAll(resp.Body)
+}
+
+// keptRows resolves the topPct cut against a field of totalRows rows:
+// ceil(totalRows * topPct/100), but never fewer than 1 — a nonempty field
+// always keeps its best row — and never more than totalRows itself. A
+// nonpositive totalRows keeps 0; the caller's empty-field guard handles
+// that case, so the truncating slice never overruns.
+func keptRows(totalRows int) int {
+   if totalRows <= 0 {
+      return 0
+   }
+   return min(totalRows, max(1, int(math.Ceil(float64(totalRows)*topPct/100))))
 }
 
 func main() {
@@ -114,13 +128,14 @@ func run() error {
    }
 
    // --- 3. Rank by score, then cut: order every provider row by GPQA
-   // Diamond descending and keep the first topN.
+   // Diamond descending and keep the first topPct% of them — keptRows
+   // resolves the percentage to a row count, rounded up.
    totalRows := len(rows)
    slices.SortFunc(rows, func(a, b *row) int {
       return cmp.Compare(b.GPQA, a.GPQA)
    })
-   if len(rows) > topN {
-      rows = rows[:topN]
+   if keep := keptRows(totalRows); keep < len(rows) {
+      rows = rows[:keep]
    }
 
    // A run that ranks nothing is a misconfiguration, not a result: say so
@@ -131,9 +146,14 @@ func run() error {
          len(cands), skipped, totalRows)
    }
 
-   // The cut floor: the lowest GPQA Diamond score that made the top topN.
-   // rows is still score-ordered here, so the last row carries it.
-   fmt.Fprintf(os.Stderr, "\nlowest gpqa diamond in top %d: %.1f%%\n", topN, rows[len(rows)-1].GPQA*100)
+   // The cut's size and bounds: how many rows topPct% resolved to, and the
+   // highest and lowest GPQA Diamond score among them. rows is still
+   // score-ordered here, so the first row carries the highest and the last
+   // row the lowest — all of it must be read before the throughput
+   // re-order below, which scrambles the positions.
+   fmt.Fprintf(os.Stderr, "\ntop %.0f%% of %d provider rows: kept %d\n", topPct, totalRows, len(rows))
+   fmt.Fprintf(os.Stderr, "highest gpqa diamond in top %.0f%%: %.1f%%\n", topPct, rows[0].GPQA*100)
+   fmt.Fprintf(os.Stderr, "lowest gpqa diamond in top %.0f%%: %.1f%%\n", topPct, rows[len(rows)-1].GPQA*100)
 
    // --- 4. Order the kept rows by throughput, descending: the selection
    // above was by score; the printed order is by speed.
@@ -141,7 +161,7 @@ func run() error {
       return cmp.Compare(b.Throughput, a.Throughput)
    })
 
-   fmt.Printf("top %d by gpqa diamond score, sorted by: throughput, descending\n\n", topN)
+   fmt.Printf("top %.0f%% by gpqa diamond score, sorted by: throughput, descending\n\n", topPct)
 
    for _, r := range rows {
       fmt.Printf("model: %s\n", r.Model)

@@ -158,18 +158,23 @@ func fetchThroughput(c *http.Client, permaslug string) (map[string]float64, erro
 // applied each, and how many models each step removed. The cutoff is
 // printed from minContext, the same constant the request URL is built
 // from, so the logged cutoff cannot drift from the sent one.
+//
+// The dedupe is not listed as a filter: a duplicate entry is a repeat of
+// a permaslug already kept, not a model lost, so a "dropped" row would
+// overstate it. It is not hidden either — the candidates line carries
+// distinct-of-total, so the repeats stay countable from the report alone
+// (open-weight entries minus distinct) and the arithmetic still closes.
 func filterReport(st catalogStats) string {
    data := &strings.Builder{}
    fmt.Fprintf(data, "catalog filters, in order:\n")
    fmt.Fprintf(data, "  1. context >= %d tokens   server-side, models/find `context` (model card)\n", minContext)
    fmt.Fprintf(data, "  2. open weights           client-side, hf_slug non-empty\n")
-   fmt.Fprintf(data, "  3. distinct permaslug     client-side, first occurrence kept\n")
    fmt.Fprintf(data, "\n")
    fmt.Fprintf(data, "  %-33s %6d\n", "after filter 1 (context):", st.AfterContext)
    fmt.Fprintf(data, "  %-33s %6d\n", "dropped by filter 2 (no weights):", st.DroppedClosed)
-   fmt.Fprintf(data, "  %-33s %6d\n", "dropped by filter 3 (duplicates):", st.DroppedDuplicate)
-   fmt.Fprintf(data, "  %-33s %6d\n", "candidates:",
-      st.AfterContext-st.DroppedClosed-st.DroppedDuplicate)
+   openEntries := st.AfterContext - st.DroppedClosed
+   fmt.Fprintf(data, "  %-33s %6d of %d entries\n", "candidates (distinct permaslugs):",
+      openEntries-st.DroppedDuplicate, openEntries)
    return data.String()
 }
 
@@ -203,11 +208,14 @@ type catalogModel struct {
 // filtered, NOT the whole catalog. The two dropped counts are the
 // client-side steps, in code order (a model that is both closed and a
 // duplicate counts under DroppedClosed, because that check runs first), so
-// the three numbers always sum to the candidate list.
+// the fields always sum: AfterContext - DroppedClosed - DroppedDuplicate
+// = candidates. The report prints the last step as distinct-of-total on
+// the candidates line rather than a "dropped" row, since a duplicate is a
+// repeat of a slug already kept, not a model lost.
 type catalogStats struct {
    AfterContext     int // models the server returned for context >= minContext
    DroppedClosed    int // of those, dropped for having no Hugging Face weights
-   DroppedDuplicate int // of those, dropped for repeating an earlier permaslug
+   DroppedDuplicate int // of those, entries repeating an earlier permaslug — repeats, not lost models
 }
 
 // findResponse carries only the fields this program reads. The payload also
