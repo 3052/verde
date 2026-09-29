@@ -17,6 +17,7 @@ import (
 var targets = []string{
    "CAFE CREAMSTO",
    "CHICK-FIL-A",
+   "FIREHOUSE SUBS",
    "IN-N-OUT",
    "JASON'S DELI",
    "LA MADELEINE",
