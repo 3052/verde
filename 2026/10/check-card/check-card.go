@@ -22,6 +22,7 @@ var targets = []string{
    "JASON'S DELI",
    "LA MADELEINE",
    "MCDONALD'S",
+   "POBLANOS PIRI PIR",
    "ROMANO'S PIZ",
    "SCHLOTZSKYS",
    "SHAKE SHACK",
